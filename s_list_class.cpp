@@ -31,6 +31,20 @@ class s_list{
                 cursor = head;
             }
         }
+        s_list(int data[],int size){
+            if (size == 0){head = nullptr;cursor = nullptr;}
+            else{
+                head = new s_list_elem(data[0],nullptr);
+                s_list_elem* current_node = head;
+                for (int i = 1; i<size;i++){
+                    s_list_elem* new_node = new s_list_elem(data[i],nullptr);
+                    current_node->next = new_node;
+                    current_node = new_node;
+                    
+                }
+                cursor = head;
+            }
+        }
 
         ~s_list(){
             cout << "destructor called"<<endl;
@@ -102,8 +116,15 @@ int main(){
     list1.prepend(2);
     list1.prepend(3);
     s_list list2 = list1;
+    int data[10] = {1,2,3,4,5,6};
+    s_list list3(data,6);
+    s_list list4(data,10);
 
     cout << "done adding elements: "<<list1<<endl;
     cout << "Copied list :\n"<<list2<<endl;
+    cout<<"correct size: "<<list3<<endl;
+    cout<<"incorrect size: "<<list4<<endl;
+    
+
     return 0;
 }

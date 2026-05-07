@@ -1,0 +1,9 @@
+5
+0: 3: cost: 23: color: 0
+1: 4: cost: 20: color: 1
+2: 3: cost: 12: color: 0
+2: 4: cost: 8: color: 0
+3: 0: cost: 23: color: 0
+3: 2: cost: 12: color: 0
+4: 1: cost: 20: color: 1
+4: 2: cost: 8: color: 0

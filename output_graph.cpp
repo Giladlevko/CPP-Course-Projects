@@ -21,7 +21,7 @@ void gen_rand_graph(bool**& graph, int**& color, int**& cost,int size, double de
         for (int j = i;j<size;j++){
             if (graph[i][j]){
                 color[i][j] = color[j][i] = rand()%3;
-                cost[i][j] = cost[j][i] = prob()*30;
+                cost[i][j] = cost[j][i] = prob()*30 + 1;
 
             }
         }
@@ -50,7 +50,7 @@ void print_to_file(bool** graph, int** color, int** cost,int size){
     for (int i = 0; i<size;i++){
         for (int j = 0; j<size;j++){
             if (graph[i][j]){
-                outp << i<<": "<<j<<": cost: "<<cost[i][j]<<": color: "<<color[i][j]<<endl;
+                outp << i<<" "<<j<<" "<<cost[i][j]<<" "<<color[i][j]<<endl;
             }
         }
     }

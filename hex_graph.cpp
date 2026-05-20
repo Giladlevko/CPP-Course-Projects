@@ -1,6 +1,7 @@
 #include<iostream>
 #include<vector>
 #include<iomanip>
+#include <limits>
 using namespace std;
 
 enum class hex_color{NONE,RED,BLUE};
@@ -170,8 +171,9 @@ class hex_graph{
         //Input: none
         //Output: Prints the game board
         //Description:
-        // Displays the current Hex board with coordinates for
-        // empty cells and colors for occupied cells.
+        // Displays the current Hex board with dots for
+        // empty cells and colors for occupied cells,
+        // Using ASCII art.
         void print_board(){
             cout<<"   ";
             for(int j = 0;j<11;j++){
@@ -187,13 +189,13 @@ class hex_graph{
 
                 for(int j = 0;j<11;j++){
                     cout<<board[i][j].get_color();
-                    if (j<10){cout<<" --- ";}
+                    if (j<10){cout<<" - ";}
                 }
                 cout<<endl;
                 if (i <10){
                     for(int s = 0; s<i;s++){cout<<"  ";}
-                    cout <<"    \\  /";
-                    for(int j = 0;j<9;j++){cout<<"  \\  /";}
+                    cout <<"    \\ /";
+                    for(int j = 0;j<9;j++){cout<<" \\ /";}
                     cout<<"  \\";
                     cout<<endl;
                 }
@@ -337,12 +339,13 @@ class hex_graph{
         void get_input(int& i,int &j,int p_id){
             while (!is_cell_valid(i,j)){
                 cout<<"Player "<<p_id<< " enter coords of cell:";
-                cin >> i >> j;
-                if (is_cell_empty(i,j)){
+                if ((cin >> i >> j) && is_cell_empty(i,j)){
                     place_cell(i,j,get_player_color(p_id));
                     
                 }
                 else{cout<<"\nPlease enter a valid cell:\n";}
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
             }
         }
 
@@ -391,8 +394,8 @@ class hex_graph{
         void game_loop(){
             bool game_won = false;
             int player_id = 1;
-            cout<<"Player 1 is RED and must connect north to south!\n";
-            cout <<"Player 2 is BLUE and must connect east to west\n";
+            cout<<"Player 1 is BLUE and must connect east to west!\n";
+            cout <<"Player 2 is RED and must connect north to south!\n";
             while(!game_won){
                 int i = -1,j = -1;
                 print_board();

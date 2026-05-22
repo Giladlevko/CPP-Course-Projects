@@ -1,8 +1,13 @@
-#include<iostream>
-#include<vector>
-#include<iomanip>
+#include <iostream>
+#include <vector>
+#include <iomanip>
 #include <limits>
+#include <utility>//for pair
+#include <algorithm>//for shuffle
+#include <random>//for random engine
 using namespace std;
+
+const int hex_size = 7;
 
 enum class hex_color{NONE,RED,BLUE};
 
@@ -120,6 +125,54 @@ class hex_cell{
         hex_group* group = nullptr;
 };
 
+class hex_opponent{
+    public:
+        hex_opponent(hex_color c,int sims = 1000):op_color(c),sim_amount(sims){
+            
+        }
+        pair<int,int> get_best_move(hex_graph & current_graph){
+            for(int i = 0; i<hex_size;i++){
+                for(int j = 0;j<hex_size;j++){
+                    if (current_graph.is_cell_empty(i,j)){
+                        empty_cells.push_back({i,j});
+                    }
+
+                }
+            }
+            for(pair<int,int> move:empty_cells){
+                int wins = 0;
+                for (int i = 0; i< sim_amount;i++){
+
+                    hex_graph test_hex_graph;
+
+                    //place non empty cells in test graph
+                    for (int k = 0; k<hex_size;k++){
+                        for(int j = 0;j<hex_size;j++){
+                           hex_color cell_color = current_graph.get_cell_color(k,j);
+                            if(cell_color != hex_color::NONE){
+                                test_hex_graph.place_cell(k,j,cell_color);
+                            }
+                        }
+                    }
+                }
+
+            }
+            
+
+            
+            //shuffle
+            random_device rd;
+            mt19937 g(rd());
+            shuffle(empty_cells.begin(),empty_cells.end(),g);
+            
+        }
+    private:
+        vector<vector<hex_cell>> board_copy;
+        hex_color op_color;
+        int sim_amount;
+        vector<pair<int,int>> empty_cells;
+};
+
 class hex_graph{
     public:
 
@@ -131,29 +184,29 @@ class hex_graph{
         // and generates adjacency information for each node.
         hex_graph(){
             int count = 0;
-            edge_list.resize(121);
-            board.resize(11, vector<hex_cell>(11));
-            for (int i = 0;i<11;i++){
-                for(int j = 0; j<11;j++){
+            edge_list.resize(hex_size*hex_size);
+            board.resize(hex_size, vector<hex_cell>(hex_size));
+            for (int i = 0;i<hex_size;i++){
+                for(int j = 0; j<hex_size;j++){
                     make_cell(i,j,edge_list[count++]);
                 }
             }
-            for (int i = 0;i<11;i++){
-                for (int j = 0; j<11;j++){
+            for (int i = 0;i<hex_size;i++){
+                for (int j = 0; j<hex_size;j++){
                     board[i][j] = hex_cell(i, j);
                 }
             }
-        
+        }
         // Name: print_graph
         // Input: none
         //Output: Prints adjacency information
         //Description:
         // Displays every board cell and all neighboring cells
         // connected to it in the graph representation.
-        }
+        
         void print_graph(){
-            const int TOTAL_NODES = 121;
-            const int N = 11;
+            const int TOTAL_NODES = hex_size*hex_size;
+            const int N = hex_size;
             for(int k = 0;k<TOTAL_NODES;k++){
                 int i = k/N;
                 int j = k%N;
@@ -176,26 +229,26 @@ class hex_graph{
         // Using ASCII art.
         void print_board(){
             cout<<"   ";
-            for(int j = 0;j<11;j++){
+            for(int j = 0;j<hex_size;j++){
                 cout<<j<<"   ";//print colunm index
             }
             cout<<endl;
-            for(int i = 0;i<11;i++){
+            for(int i = 0;i<hex_size;i++){
                 for (int s = 0;s<i;s++){
                     cout<<"  ";
                 }
                 if (i<10){cout<<i<<"  ";}//print row index
                 else {cout<< i<<" ";}
 
-                for(int j = 0;j<11;j++){
+                for(int j = 0;j<hex_size;j++){
                     cout<<board[i][j].get_color();
-                    if (j<10){cout<<" - ";}
+                    if (j<hex_size-1){cout<<" - ";}
                 }
                 cout<<endl;
-                if (i <10){
+                if (i <hex_size-1){
                     for(int s = 0; s<i;s++){cout<<"  ";}
                     cout <<"    \\ /";
-                    for(int j = 0;j<9;j++){cout<<" \\ /";}
+                    for(int j = 0;j<hex_size-2;j++){cout<<" \\ /";}
                     cout<<"  \\";
                     cout<<endl;
                 }
@@ -228,12 +281,15 @@ class hex_graph{
         // Checks whether the provided coordinates exist on
         // the Hex board.
         bool is_cell_valid(int i,int j){
-            if (i<11 && i>-1 && j<11 && j>-1){
+            if (i<hex_size && i>-1 && j<hex_size && j>-1){
                 return true;
             }
             return false;
         }
 
+        hex_color get_cell_color(int i, int j){
+            return board[i][j].get_color();
+        }
 
         //Name: is_cell_empty
         //Input: row index, column index
@@ -243,7 +299,7 @@ class hex_graph{
         // yet been occupied by a player.
         bool is_cell_empty(int i,int j){
             if(is_cell_valid(i,j)){
-                if (board[i][j].get_color() == hex_color:: NONE){
+                if (get_cell_color(i,j) == hex_color:: NONE){
                  return true;
                 }
             }
@@ -260,11 +316,11 @@ class hex_graph{
         // If no group found create a new one.
         // A new group is added to a vector for later deletion.
         void check_nighbors_group(hex_cell* cell,hex_color color){
-            int n_num = cell->get_row()*11 + cell->get_col();
+            int n_num = cell->get_row()*hex_size + cell->get_col();
             for (int neighbor:edge_list[n_num]){
                 hex_group* cell_group = find_master_group(*cell);
-                int n_i = neighbor/11;
-                int n_j = neighbor%11;
+                int n_i = neighbor/hex_size;
+                int n_j = neighbor%hex_size;
                 hex_cell* neighbor_cell = &board[n_i][n_j];
                 hex_group* neighbor_group = find_master_group(*neighbor_cell);
                 if (neighbor_cell->get_color() == color){
@@ -304,11 +360,11 @@ class hex_graph{
             hex_group* cell_group = find_master_group(*cell);
             if (color == hex_color::RED){
                 if (i == 0){cell_group->touches_start = true;}
-                if (i == 10){cell_group->touches_end = true;}
+                if (i == hex_size-1){cell_group->touches_end = true;}
             }
             if (color == hex_color::BLUE){
                 if(j==0){cell_group->touches_start = true;}
-                if(j==10){cell_group->touches_end = true;}
+                if(j==hex_size-1){cell_group->touches_end = true;}
             }
         }
 
@@ -357,7 +413,11 @@ class hex_graph{
         // Determines whether the connected group containing
         // the last placed cell touches both required sides.
         bool win_state(int i,int j){
-            hex_cell* cell = &board[i][j];
+            return win_state(i,j,this->board);
+        }
+
+        bool win_state(int i,int j,const vector<vector<hex_cell>>& hex_board){
+            hex_cell* cell = &hex_board[i][j];
             hex_group* group = find_master_group(*cell);
             if (group->touches_end && group -> touches_start){
                 return true;
@@ -377,8 +437,8 @@ class hex_graph{
                 delete group;
             }
             all_hex_groups.clear();
-            for(int i = 0;i < 11;i++){
-                for(int j = 0;j < 11;j++){
+            for(int i = 0;i < hex_size;i++){
+                for(int j = 0;j < hex_size;j++){
                     board[i][j].set_group(nullptr);
                 }
             }
@@ -429,7 +489,7 @@ class hex_graph{
                 int i_neigh = i+i_neighbors[k];
                 int j_neigh = j+j_neighbors[k];
                 if(is_cell_valid(i_neigh,j_neigh)){
-                    int node_num = i_neigh * 11 + j_neigh;
+                    int node_num = i_neigh * hex_size + j_neigh;
                     neighbors.push_back(node_num);
                 }
             }

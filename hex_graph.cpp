@@ -7,9 +7,10 @@
 #include <random>//for random engine
 using namespace std;
 
-const int hex_size = 7;
+const int hex_size = 11;
 
 enum class hex_color{NONE,RED,BLUE};
+class hex_graph;
 
 //Name: operator<<
 //Input:
@@ -127,50 +128,22 @@ class hex_cell{
 
 class hex_opponent{
     public:
-        hex_opponent(hex_color c,int sims = 1000):op_color(c),sim_amount(sims){
-            
+        hex_opponent(hex_color c,int sims = 2000):op_color(c),sim_amount(sims){
+            best_win_chance = 0.0;
+            best_move = {-1,-1};
+            op_id = static_cast<int>(c);
         }
-        pair<int,int> get_best_move(hex_graph & current_graph){
-            for(int i = 0; i<hex_size;i++){
-                for(int j = 0;j<hex_size;j++){
-                    if (current_graph.is_cell_empty(i,j)){
-                        empty_cells.push_back({i,j});
-                    }
-
-                }
-            }
-            for(pair<int,int> move:empty_cells){
-                int wins = 0;
-                for (int i = 0; i< sim_amount;i++){
-
-                    hex_graph test_hex_graph;
-
-                    //place non empty cells in test graph
-                    for (int k = 0; k<hex_size;k++){
-                        for(int j = 0;j<hex_size;j++){
-                           hex_color cell_color = current_graph.get_cell_color(k,j);
-                            if(cell_color != hex_color::NONE){
-                                test_hex_graph.place_cell(k,j,cell_color);
-                            }
-                        }
-                    }
-                }
-
-            }
-            
-
-            
-            //shuffle
-            random_device rd;
-            mt19937 g(rd());
-            shuffle(empty_cells.begin(),empty_cells.end(),g);
-            
+        pair<int,int> get_best_move(hex_graph & current_graph);
+        int get_op_id()const{
+            return op_id;
         }
     private:
-        vector<vector<hex_cell>> board_copy;
+        float best_win_chance;
+        pair<int,int> best_move;
         hex_color op_color;
         int sim_amount;
         vector<pair<int,int>> empty_cells;
+        int op_id;
 };
 
 class hex_graph{
@@ -287,6 +260,10 @@ class hex_graph{
             return false;
         }
 
+        vector<vector<hex_cell>> & get_board(){
+            return board;
+        }
+
         hex_color get_cell_color(int i, int j){
             return board[i][j].get_color();
         }
@@ -392,7 +369,13 @@ class hex_graph{
         //Description:
         // Prompts the player for input until a valid empty
         // board position is selected.
-        void get_input(int& i,int &j,int p_id){
+        void get_input(int& i,int &j,int p_id, hex_opponent& op){
+            if (op.get_op_id() == p_id){
+                pair<int,int> op_move = op.get_best_move(*this);
+                i = op_move.first;
+                j = op_move.second;
+                place_cell(i,j,get_player_color(p_id));
+            }
             while (!is_cell_valid(i,j)){
                 cout<<"Player "<<p_id<< " enter coords of cell:";
                 if ((cin >> i >> j) && is_cell_empty(i,j)){
@@ -416,7 +399,7 @@ class hex_graph{
             return win_state(i,j,this->board);
         }
 
-        bool win_state(int i,int j,const vector<vector<hex_cell>>& hex_board){
+        bool win_state(int i,int j,vector<vector<hex_cell>>& hex_board){
             hex_cell* cell = &hex_board[i][j];
             hex_group* group = find_master_group(*cell);
             if (group->touches_end && group -> touches_start){
@@ -453,13 +436,19 @@ class hex_graph{
         // a winning connection across the board.
         void game_loop(){
             bool game_won = false;
-            int player_id = 1;
             cout<<"Player 1 is BLUE and must connect east to west!\n";
-            cout <<"Player 2 is RED and must connect north to south!\n";
+            cout <<"Player 2 is RED and must connhect north to south!\n";
+            int player_id = 0;
+            cout<<"Enter The player you want! 1 for BLUE or 2 for RED\n";
+            while(!(cin>>player_id)){
+                cout<<"Enter a valid ID, 1 for BLUE or 2 for RED\n";
+            }
+            hex_opponent opponent(static_cast<hex_color>((player_id % 2)+1));
+            player_id = 1;
             while(!game_won){
                 int i = -1,j = -1;
                 print_board();
-                get_input(i,j,player_id);
+                get_input(i,j,player_id,opponent);
                 if (win_state(i,j)){
                     cout << "\nGAME OVER! player "<<player_id<<" wins!\n";
                     print_board();
@@ -474,6 +463,7 @@ class hex_graph{
         vector<vector<int>> edge_list;
         vector<vector<hex_cell>> board;
         vector<hex_group*> all_hex_groups;
+        
 
         //Name: make_cell
         //Input: row index, column index, 
@@ -496,6 +486,67 @@ class hex_graph{
             
         }
 };
+
+pair<int,int> hex_opponent::get_best_move(hex_graph & current_graph){
+    empty_cells.clear();
+    best_win_chance = 0.0;
+    for(int i = 0; i<hex_size;i++){
+        for(int j = 0;j<hex_size;j++){
+            if (current_graph.is_cell_empty(i,j)){
+                empty_cells.push_back({i,j});
+                }
+
+            }
+        }
+        //random number generator set up
+        random_device rd;
+        mt19937 g(rd());
+
+    for(int m = 0;m<empty_cells.size();m++){
+        int wins = 0;
+        for (int i = 0; i< sim_amount;i++){
+             hex_graph test_hex_graph;
+
+            //place non empty cells in test graph
+            for (int k = 0; k<hex_size;k++){
+                for(int j = 0;j<hex_size;j++){
+                    hex_color cell_color = current_graph.get_cell_color(k,j);
+                    if(cell_color != hex_color::NONE){
+                        test_hex_graph.place_cell(k,j,cell_color);
+                    }
+                }
+            }
+            //color of the cell that will be placed next
+            hex_color cell_color = op_color;
+            //place test cell
+            vector<pair<int,int>> empty_cells_copy = empty_cells;
+            test_hex_graph.place_cell(empty_cells[m].first,empty_cells[m].second,cell_color);
+            empty_cells_copy.erase(empty_cells_copy.begin()+m);
+            //shuffle
+            shuffle(empty_cells_copy.begin(),empty_cells_copy.end(),g);
+                    
+
+            //place the rest of the cells
+            for (pair<int,int> p:empty_cells_copy){
+                cell_color = static_cast<hex_color>(static_cast<int>(cell_color)%2+1);
+                test_hex_graph.place_cell(p.first,p.second,cell_color);
+                bool won = test_hex_graph.win_state(p.first,p.second,test_hex_graph.get_board());
+                if (won){
+                    if(cell_color == op_color){
+                        wins++;
+                    }
+                    break;
+                }
+            }
+        }
+        float move_win_chance = static_cast<float>(wins)/sim_amount;
+        if (move_win_chance>best_win_chance){
+            best_win_chance = move_win_chance;
+            best_move = empty_cells[m];
+        }
+    }
+    return best_move;
+}
 
 
 //Name: main

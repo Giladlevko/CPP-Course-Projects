@@ -390,7 +390,7 @@ class hex_graph{
 
 
         //Name: win_state
-        //Input: row index and column index of last move
+        //Input: row index, column index of last move, and hex board (optional)
         //Output: Returns true if the player has won
         //Description:
         // Determines whether the connected group containing
@@ -487,6 +487,14 @@ class hex_graph{
         }
 };
 
+//Name: get_best_move
+//Input: current_graph: the current Hex board state
+//Output: pair<int,int>: coordinates of the best move for the opponent
+//Description:
+// Uses Monte Carlo simulations to evaluate all possible moves.
+// Random games are simulated from the current board state, and
+// the move with the highest estimated win rate for the opponent
+// is returned.
 pair<int,int> hex_opponent::get_best_move(hex_graph & current_graph){
     empty_cells.clear();
     best_win_chance = 0.0;
@@ -507,8 +515,8 @@ pair<int,int> hex_opponent::get_best_move(hex_graph & current_graph){
         for (int i = 0; i< sim_amount;i++){
              hex_graph test_hex_graph;
 
-            //place non empty cells in test graph
-            for (int k = 0; k<hex_size;k++){
+             //place non empty cells in test graph
+             for (int k = 0; k<hex_size;k++){
                 for(int j = 0;j<hex_size;j++){
                     hex_color cell_color = current_graph.get_cell_color(k,j);
                     if(cell_color != hex_color::NONE){
@@ -530,6 +538,7 @@ pair<int,int> hex_opponent::get_best_move(hex_graph & current_graph){
             for (pair<int,int> p:empty_cells_copy){
                 cell_color = static_cast<hex_color>(static_cast<int>(cell_color)%2+1);
                 test_hex_graph.place_cell(p.first,p.second,cell_color);
+                //check win state
                 bool won = test_hex_graph.win_state(p.first,p.second,test_hex_graph.get_board());
                 if (won){
                     if(cell_color == op_color){

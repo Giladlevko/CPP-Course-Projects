@@ -5,6 +5,7 @@
 #include <utility>//for pair
 #include <algorithm>//for shuffle
 #include <random>//for random engine
+#include <memory>
 using namespace std;
 
 const int hex_size = 11;
@@ -268,6 +269,14 @@ class hex_graph{
             return board[i][j].get_color();
         }
 
+
+        void remove_cell(int i, int j) {
+            board[i][j].set_color(hex_color::NONE);
+            board[i][j].set_group(nullptr);
+        }
+
+
+
         //Name: is_cell_empty
         //Input: row index, column index
         //Output: Returns true if the cell is empty
@@ -314,10 +323,9 @@ class hex_graph{
                 }
             }
             if (find_master_group(*cell) == nullptr){
-                hex_group* new_group = new hex_group;
-                cell->set_group(new_group);
-                all_hex_groups.push_back(new_group);
-
+                auto  new_group = make_unique<hex_group>();
+                cell->set_group(new_group.get());
+                all_hex_groups.push_back(move(new_group));
             }
         }
 
@@ -416,9 +424,6 @@ class hex_graph{
         // Frees dynamically allocated group memory and resets
         // all board group pointers.
         void delete_hex_groups(){
-            for (hex_group* group:all_hex_groups){
-                delete group;
-            }
             all_hex_groups.clear();
             for(int i = 0;i < hex_size;i++){
                 for(int j = 0;j < hex_size;j++){
@@ -462,7 +467,7 @@ class hex_graph{
     private:
         vector<vector<int>> edge_list;
         vector<vector<hex_cell>> board;
-        vector<hex_group*> all_hex_groups;
+        vector<std::unique_ptr<hex_group>> all_hex_groups;
         
 
         //Name: make_cell
@@ -497,43 +502,40 @@ class hex_graph{
 // is returned.
 pair<int,int> hex_opponent::get_best_move(hex_graph & current_graph){
     empty_cells.clear();
-    best_win_chance = 0.0;
+    best_win_chance = -1.0;
     for(int i = 0; i<hex_size;i++){
         for(int j = 0;j<hex_size;j++){
             if (current_graph.is_cell_empty(i,j)){
                 empty_cells.push_back({i,j});
-                }
-
             }
-        }
-        //random number generator set up
-        random_device rd;
-        mt19937 g(rd());
 
+        }
+    }
+    //random number generator set up
+    random_device rd;
+    mt19937 g(rd());
+    hex_graph test_hex_graph;
+    
     for(int m = 0;m<empty_cells.size();m++){
         int wins = 0;
         for (int i = 0; i< sim_amount;i++){
-             hex_graph test_hex_graph;
-
-             //place non empty cells in test graph
-             for (int k = 0; k<hex_size;k++){
+            //color of the cell that will be placed next
+            hex_color cell_color = op_color;
+            //place non empty cells in test graph
+            for (int k = 0; k<hex_size;k++){
                 for(int j = 0;j<hex_size;j++){
                     hex_color cell_color = current_graph.get_cell_color(k,j);
                     if(cell_color != hex_color::NONE){
-                        test_hex_graph.place_cell(k,j,cell_color);
+                    test_hex_graph.place_cell(k,j,cell_color);
                     }
                 }
-            }
-            //color of the cell that will be placed next
-            hex_color cell_color = op_color;
+            } 
             //place test cell
             vector<pair<int,int>> empty_cells_copy = empty_cells;
             test_hex_graph.place_cell(empty_cells[m].first,empty_cells[m].second,cell_color);
             empty_cells_copy.erase(empty_cells_copy.begin()+m);
             //shuffle
             shuffle(empty_cells_copy.begin(),empty_cells_copy.end(),g);
-                    
-
             //place the rest of the cells
             for (pair<int,int> p:empty_cells_copy){
                 cell_color = static_cast<hex_color>(static_cast<int>(cell_color)%2+1);
@@ -547,7 +549,15 @@ pair<int,int> hex_opponent::get_best_move(hex_graph & current_graph){
                     break;
                 }
             }
+            //reset board
+            for (int i = 0; i<hex_size;i++){
+                for (int j =0; j<hex_size;j++){
+                    test_hex_graph.remove_cell(i, j);
+                }
+            }
+            test_hex_graph.delete_hex_groups();
         }
+
         float move_win_chance = static_cast<float>(wins)/sim_amount;
         if (move_win_chance>best_win_chance){
             best_win_chance = move_win_chance;

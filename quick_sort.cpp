@@ -73,20 +73,16 @@ void quick_sort(vector<T>& arr,int l = 0,int r = 0){
 
 
 int main(){
-    mt19937 rng(random_device{}());
-    uniform_int_distribution<int> dist(1, 10);
     vector<int> arr;
     int n;
     cin>>n;
     for(int i = 0;i<n;i++){
-        int a = dist(rng);
-        //cout<< a<<" ";
+        int a = 0;
+        cin>>a;
         arr.push_back(a);
     }
-    cout<<endl<<endl;
     quick_sort(arr,0,arr.size());
-    //for(int i = 0; i<n;i++){
-    //    cout<<arr[i]<<" ";
-    //}
-    cout<<arr[n-1];
+    for(int i = 0; i<n;i++){
+        cout<<arr[i]<<" ";
+    }
 }

@@ -1,9 +1,10 @@
 #include<vector>
 #include<iostream>
+#include<climits>
 using namespace std;
 
 struct node{
-    node(long long k,node* p = nullptr):key(k),left(nullptr),right(nullptr),parent(p)st_sum(0){}
+    node(long long k,node* p = nullptr):key(k),left(nullptr),right(nullptr),parent(p),st_sum(k){}
     long long key;
     long long st_sum;
     node* parent;
@@ -21,35 +22,56 @@ class tree{
         node* find(long long k,node* r){
             if (r == nullptr){return r;}
             if (r->key == k){
-                return r;
+                return  r;
             }
             if (r->key>k){
                 if (r->left != nullptr){
-                    return(find(k,r->left));
+                    return (find(k,r->left));
                 }
-                return r;
+                return  r;
             }
             else{
                 if(r->right != nullptr){
                     return (find(k,r->right));
                 }
-                return r;
+                return  r;
             }
+
+        }
+
+        node* search(long long k){
+            node* p = find(k,root);
+            if(p!=nullptr){
+                splay(p);
+            }
+            return p;
         }
 
         void add(long long k){
-            node* p = find(k,root);
-            if (p != nullptr && p->key == k){return;}
-            node* c = new node(k,p);
+            node* p = search(k);
+            if (p != nullptr && p->key == k){
+                return;
+            }
+            node* c = new node(k,nullptr);
             if (p == nullptr){
                 root = c;
+                return;
             }
             else if (k < p->key){
-                p->left = c;
+                c->right = p;
+                c->left = p->left;
+                if(p->left!=nullptr){p->left->parent = c;}
+                p->left = nullptr;
             }
             else{
-                p->right = c;
+                c->left = p;
+                c->right = p->right;
+                if(p->right!=nullptr){p->right->parent = c;}
+                p->right = nullptr;
             }
+            p->parent = c; 
+            root = c;
+           update_tree_sums(p);
         }
 
 
@@ -83,69 +105,39 @@ class tree{
             }
         }
 
-        void remove(node* n){
-            node* p = n->parent;
-            node* l = n->left;
-            if (n->right == nullptr){
-                if (p == nullptr){
-                    root = l;
-                }
-                else if (n == p->left){
-                    p->left = l;
-                }
-                else{
-                    p->right = l;
-                }
-                if (l != nullptr){
-                    l->parent = p;
-                }
-                delete n;
-            }
-            else{
-                node* x = next(n);
-                //x has no left child
-                if(x == n->right){
-                    x->left = n->left;
-                    if (n->left != nullptr){n->left->parent = x;}
-                    x->parent = p;
-                    if (p != nullptr){
-                        if (n == p->left){
-                            p->left = x;
-                        }
-                        else{
-                            p->right = x;
-                        }
-                    }
-                    else{root = x;}
-                }
-                else{
-                    if(x->right != nullptr){
-                        x->right->parent = x->parent;
-                    }
-                    x->parent->left = x->right;
-
-                    if (n->left != nullptr){n->left->parent = x;}
-                    if (n->right != nullptr){n->right->parent = x;}
-                    x->left = n->left;
-                    x->right = n->right;
-                    x->parent = p;
-
-                    if (p == nullptr){
-                        root = x;
-                    }
-                    else{
-                        if (n == p->left){
-                            p->left = x;
-                        }
-                        else{p->right = x;}
-                    } 
-                }
-                delete n;
+        void update_tree_sums(node* n){
+            node* cur = n;
+            while (cur != nullptr) {
+                update_sum(cur);
+                cur = cur->parent;
             }
         }
 
+        void remove(node* n){
+            if (n == nullptr){return;}
+            node* p = search(n->key);
+            if(p->key != n->key || p != root){return;}
+            
+            node* left_tree = root->left;
+            node* right_tree = root->right;
+            if(left_tree!=nullptr){left_tree->parent = nullptr;}
+            if(right_tree!=nullptr){right_tree->parent = nullptr;}
+
+            delete root;
+            if(left_tree == nullptr){root = right_tree;}
+            else{
+                root = left_tree;
+                search(LLONG_MAX);
+                root->right = right_tree;
+                if (right_tree!=nullptr){right_tree->parent = root;}
+            }
+            update_sum(root);
+        }
+
+
+
         void remove_by_key(long long k){
-            node* n = find(k,root);
+            node* n = search(k);
             if (n != nullptr && n->key == k){
                 remove(n);
             }
@@ -164,20 +156,21 @@ class tree{
                 n->st_sum += n->right->st_sum;
             }
         }
-        long long prefix_sum(node* n,long long target){
-            if (n == nullptr) {return 0}
+        long long prefix_sum(long long target){
+            if (root == nullptr) {return 0;}
+            node*n = search(target);
+            long long left_sum = (n->left != nullptr) ? n->left->st_sum : 0;
             if (n->key <= target){
-                long long left_sum = (n->left != nullptr) ? n->left->st_sum : 0;
-                return n->key + left_sum + prefix_sum(n->right, target);
+                return n->key + left_sum;
             }
             else{
-                return prefix_sum(n->left,target);
+                return left_sum;
             }
         }
 
         long long range_sum(long long x,long long y){
             if (x>y){return 0;}
-            return prefix_sum(root, y) - prefix_sum(root, x - 1);
+            return prefix_sum(y) - prefix_sum(x - 1);
         }
 
         void rotate_right(node* x){
@@ -270,7 +263,7 @@ int main(){
             t.remove_by_key((l+x)%M);
         }
         else if(action == '?'){
-            node* n = t.find((l+x)%M,t.root);
+            node* n = t.search((l+x)%M);
             if( n != nullptr && n->key == (l+x)%M){
                 cout<<"Found\n";
             }
@@ -284,7 +277,6 @@ int main(){
             x = t.range_sum((l+x)%M,(r+x)%M);
             cout<<x<<"\n";
         }
-
-
     }
+    return 0;
 }

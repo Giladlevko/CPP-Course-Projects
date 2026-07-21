@@ -392,6 +392,8 @@ long long get_min_cost(
     long long min_tour_cost = INF;
     for(int end_node = 0; end_node<k; end_node++){
         if(end_node == start){continue;}
+        //looks at all the possible end nodes for when all the nodes have been visited
+        //and sees which end node gives the min distance for the route + the journey from the end to the start
         long long tour_cost = memo[end_node][END_STATE] + tsp_m[end_node][start];
         if(tour_cost<min_tour_cost){min_tour_cost = tour_cost;}
     }

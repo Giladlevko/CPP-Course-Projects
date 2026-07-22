@@ -2,13 +2,17 @@
 #include<vector>
 #include<iostream>
 #include<unordered_map>
+#include<queue>
+#include<utility>
 using namespace std;
 
+enum class substring_group {first,second,both};
 
 struct node{
     node(int s,int e,bool is_end):start(s),end(e),pat_end(is_end){}
     int start,end;
     bool pat_end;
+    substring_group group;
     unordered_map<char,node*> nexts;
 };
 
@@ -21,9 +25,12 @@ class compressed_suffix_trie{
             int last_letter = text.size()-1;
             for(int p:patterns){
                 int i = p;
+                char p_first_letter = text[p];
+                if (p_first_letter == '#'){first_text_end = i;} 
                 node* current_node = root;
                 while(i<=last_letter){
                     char curr_symb = text[i];
+                    
                     auto it = current_node->nexts.find(curr_symb);
                     if(it != current_node->nexts.end()){
                         node* child = it->second;
@@ -60,6 +67,53 @@ class compressed_suffix_trie{
                     }
                 }
             }
+            assign_groups();
+        }
+
+        void group_node(node* curr){
+            for(auto&p:curr->nexts){
+                group_node(p.second);
+            }
+            substring_group curr_group = (curr->start <= first_text_end) ? substring_group::first : substring_group::second;
+            curr->group = curr_group;
+            for(auto&p:curr->nexts){
+                node* child = p.second;
+                if(child->group!=curr_group){
+                    curr->group = substring_group:: both;
+                    break;
+                }
+            }
+        }
+
+        void assign_groups(){
+            for(auto&p:root->nexts){
+                group_node(p.second);
+            }
+        }
+
+        pair<int,int> find_shortest_uncommon_substring(){
+            queue<node*>q;
+            q.push(root);
+            while(!q.empty()){
+                int size = q.size();
+                for(int i = 0; i<size ;i++){
+                    node* curr = q.front();
+                    q.pop();
+                    if(curr != root){
+                        int start = curr->start;
+                        char first_letter = full_text[start];
+                        if(curr->group==substring_group::first && first_letter != '#' && first_letter != '$'){
+                            int end = curr->end;
+                            return{start,end};
+                        }
+                    }
+                    
+                    for(auto&p: curr->nexts){
+                        q.push(p.second);
+                    }
+                }
+            }
+            return{-1,-1};
         }
 
         void print(node* curr){
@@ -107,6 +161,7 @@ class compressed_suffix_trie{
                 }
             }
         }
+        int first_text_end;
         string full_text;
         node*root;
 };
@@ -114,6 +169,7 @@ class compressed_suffix_trie{
 class suffix{
     public:
         suffix(const string& text){
+            full_text = text;
             vector<int>patterns;
             for(int i = 0; i<text.size();i++){
                 patterns.push_back(i);
@@ -126,16 +182,27 @@ class suffix{
                 trie_tree->print(trie_tree->root);
             }
         }
+        void shortest_non_shared_substring(){
+            pair<int,int>p = trie_tree->find_shortest_uncommon_substring();
+            if(p.first == -1){cout<<"ERROR\n";return;}
+            int length = p.second - p.first + 1;
+            char last_letter = full_text[p.second];
+            cout.write(&full_text[p.first],length)<<"\n";
+        }
     private:
+        string full_text;
         compressed_suffix_trie* trie_tree = nullptr;
 };
 
 
 
 int main(){
-    string txt;
-    cin>>txt;
-    suffix s(txt);
-    s.print();
-
+    string txt1,txt2;
+    cin>>txt1>>txt2;
+    txt1.append("#");
+    txt2.append("$");
+    txt1.append(txt2);
+    suffix s(txt1);
+    //s.print();
+    s.shortest_non_shared_substring();
 }

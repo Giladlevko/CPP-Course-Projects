@@ -109,9 +109,9 @@ class compressed_suffix_trie{
                 node* child = p.second;
 
                 if(child->group == substring_group::first){
-                    //of shared path, add 1 letter to the previos shared to get the min non shared
+                    //of shared path, add 1 letter to the previous shared to get the min non shared
                     //cant just take the substring because txt2 might have it but the combination 
-                    //of the previos shared then one from txt1 will be a non shared substring
+                    //of the previous shared then one from txt1 will be a non shared substring
                     int start_index = child->suffix_start;
                     int substring_length = depth + 1;
                     if(start_index + substring_length - 1 <= first_text_end){

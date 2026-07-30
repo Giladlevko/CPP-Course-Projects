@@ -185,6 +185,7 @@ void collect_occurences(const string&s,const string&pattern,
 int main(){
     string s;
     cin>>s;
+    s+='$';
     int size = s.size();
     vector<int> suffix_arr = build_suffix_arr(s);
     vector<bool>occurrences(size);

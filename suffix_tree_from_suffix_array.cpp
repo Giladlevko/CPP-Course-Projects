@@ -5,7 +5,7 @@
 
 using namespace std;
 
-//takes string, its suffix array and its lcp array and creates a suffix tree
+//takes string, its suffix array, and its lcp array and creates a suffix tree
 
 struct node{
     node(node*pa,int dep,int s,int e):

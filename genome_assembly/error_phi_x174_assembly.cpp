@@ -55,16 +55,42 @@ int char_index(const char& c){
     }
 }
 
+char index_to_char(const int& i){
+    switch(i){
+        case 0:return 'A';
+        case 1:return 'C';
+        case 2:return 'G';
+        case 3:return 'T';
+        default:return '\0';
+    }
+}
+
 
 string get_char_consensus(vector<string>&reads,vector<int>&reads_pos,const int& row_count){
-    vector<vector<int>>consensus_matrix(row_count,vector<int>(4,0))
+    int char_count = 4;//A,C,G,T
+    vector<vector<int>>consensus_matrix(row_count,vector<int>(char_count,0));
     int read_count = reads.size();
     int read_size = reads[0].size();
+    string genome = "";
     for(int i = 0; i<read_count; i++){
-        for(const char& c:reads[i]){
-            
+        for(int j = 0; j<read_size; j++){
+            int char_col = char_index(reads[i][j]);
+            int char_row = (j+reads_pos[i])%row_count;
+            consensus_matrix[char_row][char_col]++;
         }
     }
+    for(int r = 0; r<row_count; r++){
+        int max_char = 0;
+        char best;
+        for(int col = 0; col<char_count; col++){
+            if(max_char<consensus_matrix[r][col]){
+                max_char = consensus_matrix[r][col];
+                best = index_to_char(col);
+            }
+        }
+        genome += best;
+    }
+    return genome;
 }
 
 
@@ -77,7 +103,7 @@ string hamiltonian_greedy(vector<string>&reads){
     int last = -1;
     int pos = 0;
     vector<int>reads_pos(read_count,0);
-    string genome = reads[curr];
+    
     while(last!=curr){
         visited[curr] = true;
         
@@ -94,15 +120,14 @@ string hamiltonian_greedy(vector<string>&reads){
         }
         //if I found a next match I can update the genome
         if(best_next != -1){
-            curr = best_next;
             pos += reads[curr].size() - max_overlap;
-            read_count[curr]  = pos;
-            genome += reads[curr].substr(max_overlap);
+            curr = best_next;
+            reads_pos[curr]  = pos;
         }
     }
     int final_overlap = get_overlap_with_mismatch(reads[last],reads[start]);
     int row_count = pos+reads[curr].size() - final_overlap;
-    genome = genome.substr(0,genome.size()-final_overlap);
+    string genome = get_char_consensus(reads,reads_pos,row_count);
     return genome;
 }
 

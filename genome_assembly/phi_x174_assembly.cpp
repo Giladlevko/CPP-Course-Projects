@@ -59,6 +59,12 @@ string hamiltonian_greedy(vector<string>&reads){
                 }
             }
         }
+        
+        /*
+        turned out to be an unnececary fallback
+
+        but it was supposed to be a fallback for when I didnt find a
+        next and there were still unvisited nodes
         if(best_next == -1){
             //if I didnt find an unvisited k large overlap there might be smaller ones
             //so I should get the best one
@@ -72,6 +78,8 @@ string hamiltonian_greedy(vector<string>&reads){
 
             }
         }
+        */
+
         //if I found a next match I can update the genome
         if(best_next != -1){
             curr = best_next;

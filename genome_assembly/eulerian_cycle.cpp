@@ -6,6 +6,11 @@
 using namespace std;
 
 
+//I used this video by William Fiset for help with the Algorithm
+//And I found it very useful to understand how it works!
+//https://youtu.be/8MpoO2zA2l4?si=YY6ryUyZVQJ45GRo
+
+
 void count_in_out_degree(
     const vector<vector<int>>&graph,
     vector<int>&in_count,vector<int>&out_count
@@ -31,13 +36,20 @@ bool graph_has_eulerian_path(
         if ( abs(in_count[i] - out_count[i]) > 1){
             return false;
         }
-        else if(out_count[i] - in_count[i] == 1){start_nodes++;}
+        else if(out_count[i] - in_count[i] == 1){
+            start_nodes++;
 
-        else if(in_count[i] - out_count[i] == 1){end_nodes++;}
+        }
+
+        else if(in_count[i] - out_count[i] == 1){
+            end_nodes++;
+        }
 
     }
     //either there are no start/end nodes or there are 1 of each
     bool has_path = (start_nodes == end_nodes == 0) || (start_nodes == end_nodes == 1);
+
+
     return has_path;
 }
 
@@ -66,15 +78,17 @@ int get_start_node(
 void dfs(
     const vector<vector<int>>&graph,
     list<int>&path,int curr,
-    vector<int>&in_count, 
     vector<int>&out_count
 ){
     while(out_count[curr] > 0){
         //select the next unvisited edge
+        //the out_count is used bothe to know how much
+        //edges I have left to discover 
+        //and also to index the next node 
         int next_node_index = --out_count[curr];
         int next_node = graph[curr][next_node_index];
 
-        dfs(graph,path,next_node,in_count,out_count);
+        dfs(graph,path,next_node,out_count);
 
     }
     path.push_front(curr);
@@ -83,7 +97,7 @@ void dfs(
 
 list<int> get_eulerian_path(
     const int& vert_count, const int& edge_count,
-    const vector<vector<int>>&graph
+    vector<vector<int>>&graph
 ){
     list<int>path;
     vector<int>in_count(vert_count,0);
@@ -94,7 +108,7 @@ list<int> get_eulerian_path(
     }
     int start_node = get_start_node(in_count,out_count);
 
-    dfs(graph,path,start_node,in_count,out_count);
+    dfs(graph,path,start_node,out_count);
 
     //if we didnt traverse a correct number of verices
     //i.e edge_count+1 than our path doesnt exist
@@ -104,15 +118,20 @@ list<int> get_eulerian_path(
     return path;
 }
 
-void print_path(const list<int>&path){
-    if(path.empty()){
+void print_cycle(const list<int>&path){
+    //a cycle must end in the same verex
+    if(path.empty() || path.back() != path.front()){
         cout<<"0";
         return;
     }
     cout<<"1\n";
-    for(const int&i:path){
+
+    //no need to output the last element
+    //since it is already the start element
+
+    for(auto it = path.begin(); it != prev(path.end()); it++){
         //output the vert but return to 1 index
-        cout<<i+1<<" ";
+        cout<<*it+1<<" ";
     }
 }
 
@@ -128,5 +147,5 @@ int main(){
         graph[u].push_back(v);
     }
     list<int> path = get_eulerian_path(vert_count,edge_count,graph);
-    print_path(path);
+    print_cycle(path);
 }

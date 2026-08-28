@@ -84,7 +84,7 @@ void dfs(
 ){
     while(out_count[curr] > 0){
         //select the next unvisited edge
-        //the out_count is used bothe to know how much
+        //the out_count is used both to know how much
         //edges I have left to discover 
         //and also to index the next node 
         int next_node_index = --out_count[curr];

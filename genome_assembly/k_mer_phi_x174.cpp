@@ -49,7 +49,7 @@ bool graph_has_eulerian_path(
 
     }
     //either there are no start/end nodes or there are 1 of each
-    bool has_path = (start_nodes == end_nodes == 0) || (start_nodes == end_nodes == 1);
+    bool has_path = (start_nodes == 0 && end_nodes == 0) || (start_nodes == end_nodes == 1);
 
 
     return has_path;

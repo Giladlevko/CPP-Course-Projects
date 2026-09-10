@@ -20,176 +20,279 @@ using namespace std;
 //Remove all tips and for each bubble only keep the path of the highest weight
 //meaning the path that uses the most agreed upon k-mers
 
+class DE_BRUIJN_GRAPH;
+class BUBBLE_REMOVER;
 
+struct edge{
+    edge(int t,int w):to(t),weight(w),visits_left(w){}
+    edge() = default;
+    int to;
+    unsigned short weight;
+    unsigned short visits_left;
 
-int get_id(
-    const string& s,
-    unordered_map<string,int>& str_to_id,
-    vector<string>& id_to_str,
-    vector<vector<int>>& graph
-){
-    auto it = str_to_id.find(s);
-    if(it != str_to_id.end()){
-        return it->second;
+    void operator++(){
+        weight++;
+        visits_left = weight;
     }
-    int id = id_to_str.size();
-    id_to_str.push_back(s);
-    str_to_id[s] = id;
-    graph.push_back({});
-    return id;
-}
+};
+
+struct DE_BRUIJN_ROW{
+    DE_BRUIJN_ROW(vector<edge>r):row(r){}
+    DE_BRUIJN_ROW() = default;
+    vector<edge>row;
+    edge& operator[](int& i){
+        if(i>row.size()){throw std::out_of_range("Column index out of range");}
+        return row[i];
+    }
+    size_t size(){
+        return row.size();
+    }
+    void push_back_edge(const edge& e){
+        row.push_back(e);
+    }
+};
 
 
 
-vector<vector<int>> create_k_mer_graph(
-    const vector<string>& entries,const int& k,
-    vector<string>& id_to_str,
-    map<pair<int,int>,int>& edge_weight
-){
-    int count = entries.size();
-    unordered_map<string,int>k_mer_count;
-    vector<vector<int>> graph;
-    unordered_map<string,int> str_to_id;
+class DE_BRUIJN_GRAPH{
+    public:
 
-    //min amount of times a k-mer can appear in the graph
-    //if it appears less than dont add to the graph
-    int min_freq = 2;
+        DE_BRUIJN_GRAPH(const vector<string>& entries,const int& k){
+            create_k_mer_graph(entries,k);
 
-    //used for initial filtering of rare k-mers because the e-coli genome
-    //will create a lot of errors that would make the graph huge
-    for(const string& e:entries){
-        for(int i = 0; i<=e.size()-k; i++){
-            string k_mer = e.substr(i,k);
-            k_mer_count[k_mer]++; 
         }
-    }
 
-    for(const string& e:entries){
-        //sliding a window through the entry to get all k-mers
-        for(int i = 0; i<=e.size()-k; i++){
-            //vert size is k-1 so the edge is k long
-            string pre = e.substr(i,k-1);
-            string suff = e.substr(i+1,k-1);
+        vector<DE_BRUIJN_ROW>graph;
 
-            //filtering rare k-mers to avoid making the graph huge
-            if(k_mer_count[pre+suff.back()] < min_freq){continue;}
+        vector<int>in_deg,out_deg;
 
-            int u = get_id(pre,str_to_id,id_to_str,graph);
-            int v = get_id(suff,str_to_id,id_to_str,graph);
+        vector<string> id_to_str;
 
-            //cout<<u<<"->"<<v<<" = "<<pre<<"->"<<suff<<"\n";
-
-            //prevent the same edge from being created twice
-            //if(find(graph[u].begin(),graph[u].end(),v) == graph[u].end()){
-            //    graph[u].push_back(v);
-            //}
-            graph[u].push_back(v);
-
-            //map auto initializes missing keys to 0 on creation
-            //so I can just increment it even if it doesnt exist yet
-            edge_weight[{u,v}]++;
+        DE_BRUIJN_ROW& operator[](const int& v){
+            if(v>graph.size()){throw std::out_of_range("Row index out of range");}
+            return graph[v];
         }
-    }
-    //free up the allocated space
-    k_mer_count = {};
-    str_to_id = {};
-
-    return graph;
-}
 
 
-void count_in_out_degree(
-    const vector<vector<int>>&graph,
-    vector<int>&in_count,vector<int>&out_count
 
-
-){
-    int size = graph.size();
-    for(int i = 0; i<size; i++){
-        for(const int&v:graph[i]){
-            in_count[v]++;
-            out_count[i]++;
+        void update_edge_degree(){
+            in_deg.resize(graph.size(),0);
+            out_deg.resize(graph.size(),0);
+            int size = graph.size();
+            for(int v = 0; v<size; v++){
+                for(int j = 0; j<graph[v].size(); j++){
+                    int u = graph[v][j].to;
+                    in_deg[u]++;
+                    out_deg[v]++;
+                }
+            }
         }
-    }
-}
 
-void record_valid_bubble_vertices_cannidates(
-    vector<int>&in_count,vector<int>&out_count,
-    unordered_set<int>&in_cannidates,unordered_set<int>&out_cannidates
-){
-    int size = in_count.size();
-    for(int v = 0; v<size; v++){
-        if(in_count[v]>=2){
-            in_cannidates.insert(v);
+
+        int find_edge(const int& v,const int& u){
+            for(int i = 0; i<graph[v].size(); i++){
+                 if(graph[v][i].to == u){
+                    return i;
+                }
+            }
+            return -1;
         }
-        if(out_count[v]>=2){
-            out_cannidates.insert(v);
+
+        
+        private:
+
+            void create_k_mer_graph(
+                const vector<string>& entries,const int& k
+            ){
+                int count = entries.size();
+                unordered_map<string,int>k_mer_count;
+                unordered_map<string,int> str_to_id;
+
+                //min amount of times a k-mer can appear in the graph
+                //if it appears less than dont add to the graph
+                int min_freq = 1;
+
+                //used for initial filtering of rare k-mers because the e-coli genome
+                //will create a lot of errors that would make the graph huge
+                for(const string& e:entries){
+                    for(int i = 0; i<=e.size()-k; i++){
+                        string k_mer = e.substr(i,k);
+                        k_mer_count[k_mer]++; 
+                    }
+                }
+
+                for(const string& e:entries){
+                    //sliding a window through the entry to get all k-mers
+                    for(int i = 0; i<=e.size()-k; i++){
+                        //vert size is k-1 so the edge is k long
+                        string pre = e.substr(i,k-1);
+                        string suff = e.substr(i+1,k-1);
+
+                        //filtering rare k-mers to avoid making the graph huge
+                        if(k_mer_count[pre+suff.back()] < min_freq){continue;}
+
+                        int u = get_id(pre,str_to_id);
+                        int v = get_id(suff,str_to_id);
+
+                        cout<<u<<"->"<<v<<" = "<<pre<<"->"<<suff<<"\n";
+
+                        //prevent the same edge from being created twice
+                        int v_index = find_edge(u,v);
+                        if(v_index == -1){
+                            add_edge(u,v);
+                        }
+                        
+                        //++ increments the weight and the visits left
+                        ++graph[u][v_index];
+                    }
+                }
+                //free up the allocated space
+                k_mer_count = {};
+                str_to_id = {};
+
+            }
+
+
+            
+            int get_id(
+                const string& s,
+                unordered_map<string,int>& str_to_id
+            ){
+                auto it = str_to_id.find(s);
+                if(it != str_to_id.end()){
+                    return it->second;
+                }
+                int id = id_to_str.size();
+                id_to_str.push_back(s);
+                str_to_id[s] = id;
+                add_row();
+                return id;
+            }
+
+            void add_row(const DE_BRUIJN_ROW& row){
+                graph.push_back(row);
+            }
+            void add_row(){
+                DE_BRUIJN_ROW row;
+                graph.push_back(row);
+            }
+
+
+            //returns edge from a specific v to a specific u
+            edge* get_edge(const int& v,const int& u){
+                int i = find_edge(v,u);
+                if(i != -1){
+                    return &graph[v][i];
+                }
+                throw std::out_of_range("Edge not found!");
+
+                return nullptr;
+            }
+
+            void add_edge(const int&v,const int u){
+                edge e(u,0);
+                graph[v].push_back_edge(e);
+            }
+
+
+};
+
+
+
+
+class BUBBLE_REMOVER{
+    public:
+        BUBBLE_REMOVER(DE_BRUIJN_GRAPH&g):graph(g),in_deg(g.in_deg),out_deg(g.out_deg){
+            graph.update_edge_degree();
         }
-    }
-}
+    private:
+        DE_BRUIJN_GRAPH& graph;
+        vector<int>&in_deg;
+        vector<int>&out_deg;
 
-bool disjoint_paths(const vector<int>&a,const vector<int>&b,int vert_count){
-    vector<bool>visited(vert_count,false);
-    int a_size = a.size();
-    int b_size = b.size();
-    for(const int& u:a){
-        visited[u] = true;
-    }
-    //remark the shared v and w as false
-    visited[a[0]] = visited[a.back()] = false;
-    for(const int u:b){
-        if(visited[u]){return false;}
-    }
-    return true;
-}
-
-void find_paths(
-    const vector<vector<int>>&graph,
-    const int& curr,
-    vector<int>&path,
-    vector<bool>&visited,
-    unordered_set<int>&in_cannidates,
-    unordered_map<int,vector<vector<int>>>& to_w_paths,
-    const int& max_depth
-){
-    //depth is in edges count not vertex count
-    int depth = path.size()-1;
-    auto it = in_cannidates.find(curr);
-    if(depth>0 &&  it != in_cannidates.end()){
-        to_w_paths[curr].push_back(path);
-        //we dont return here because we might hit another w later
-        //before reaching the depth limit
-    }
-
-    if(depth == max_depth){return;}
-
-    for(int u:graph[curr]){
-        if(visited[u]){continue;}
-        visited[u] = true;
-        path.push_back(u);
-
-        find_paths(graph,u,path,visited,in_cannidates,to_w_paths,max_depth);
-
-        //we track back here so we could use this
-        //vertex for another path to some other w
-        path.pop_back();
-        visited[u] = false;
-    }
-}
-
-
-double get_path_weight(const vector<int>&path,const map<pair<int,int>,int>& edge_weight){
-    int size = path.size();
-    int edge_count = size-1;
-    double total_weight = 0.0;
-    for(int i = 0; i<size-1; i++){
-        auto it = edge_weight.find({path[i],path[i+1]});
-        if(it != edge_weight.end()){
-            total_weight += it->second;
+        void record_valid_bubble_vertices_cannidates(
+            unordered_set<int>&in_cannidates,unordered_set<int>&out_cannidates
+        ){
+            int size = in_deg.size();
+            for(int v = 0; v<size; v++){
+                if(in_deg[v]>=2){
+                    in_cannidates.insert(v);
+                }
+                if(out_deg[v]>=2){
+                    out_cannidates.insert(v);
+                }
+            }
         }
-    }
-    return total_weight / edge_count;
-}
+
+        bool disjoint_paths(const vector<int>&a,const vector<int>&b,const int& vert_count){
+            vector<bool>visited(vert_count,false);
+            int a_size = a.size();
+            int b_size = b.size();
+            for(const int& u:a){
+                visited[u] = true;
+            }
+            //remark the shared v and w as false
+            visited[a[0]] = visited[a.back()] = false;
+            for(const int u:b){
+                if(visited[u]){return false;}
+            }
+            return true;
+        }
+
+        void find_paths(
+            const int& curr,
+            vector<int>&path,
+            vector<bool>&visited,
+            unordered_set<int>&in_cannidates,
+            unordered_map<int,vector<vector<int>>>& to_w_paths,
+            const int& max_depth
+        ){
+            //depth is in edges count not vertex count
+            int depth = path.size()-1;
+            auto it = in_cannidates.find(curr);
+            if(depth>0 &&  it != in_cannidates.end()){
+                to_w_paths[curr].push_back(path);
+                //we dont return here because we might hit another w later
+                //before reaching the depth limit
+            }
+
+            if(depth == max_depth){return;}
+
+            for(int i = 0; i<graph[curr].size(); i++){
+                const int& u = graph[curr][i].to;
+                if(visited[u]){continue;}
+                visited[u] = true;
+                path.push_back(u);
+
+                find_paths(u,path,visited,in_cannidates,to_w_paths,max_depth);
+
+                //we track back here so we could use this
+                //vertex for another path to some other w
+                path.pop_back();
+                visited[u] = false;
+            }
+        }
+
+        double get_path_weight(const vector<int>&path){
+            int size = path.size();
+            int edge_count = size-1;
+            double total_weight = 0.0;
+            for(int i = 0; i<size-1; i++){
+                const int& v = path[i];
+                const int& u = path[i+1];
+                int j = graph.find_edge(v,u);
+                if(j != -1){
+                    total_weight += graph[v][j].weight;
+                }
+            }
+            return total_weight / edge_count;
+        }
+        // need to continue refactoring the bubble removal
+
+
+};
+
+
 
 
 void remove_path(const vector<int>&path, vector<vector<int>>&graph){
@@ -232,6 +335,11 @@ int pop_valid_bubbles(
         for(const auto& w_paths:to_w_paths){
             //w_paths.second is the paths from v to w
             int path_count = w_paths.second.size();
+
+            //if the path is only two it means its not a bubble but extra paths from v-u
+            //which we need int the assembler
+            if(path_count == 2){continue;}
+
             for(int i = 0; i<path_count; i++){
                 for(int j = i+1; j<path_count; j++){
                     if(disjoint_paths(w_paths.second[i],w_paths.second[j],vert_count)){
@@ -245,7 +353,7 @@ int pop_valid_bubbles(
                             cout<<v<<" ";
                         }
                         cout<<"\n";
-                        */
+                        //*/
 
                         remove_path(path_to_remove,graph);
                         bubble_count++;
@@ -286,6 +394,85 @@ void remove_edge(vector<vector<int>>&graph,int u,int v){
     }
 }
 
+
+bool tip_is_error(
+    const vector<vector<int>>&graph,
+    const vector<int>&path,
+    const int& tip_end,
+    const map<pair<int,int>,int>&edge_weight,
+    const bool& reversed,
+    const vector<int>& in,const vector<int>&out
+){
+    float tip_weight = 0;
+    float tip_end_total_weight = 0;
+
+    //the max percentage that a tip can be counted as not an error
+    float max_tip_weight_diff = 0.2;
+
+    cout<<"tip_end: "<<tip_end<<"\n";
+
+    //path.push_back(tip_end);
+    for(int i = 0; i<path.size()-1; i++){
+        cout<<path[i]<<"->"<<path[i+1]<<"\n";
+        if(!reversed){
+            tip_weight+=edge_weight.at({path[i],path[i+1]});
+        }
+        else{
+            tip_weight+=edge_weight.at({path[i+1],path[i]});
+        }
+    }
+
+
+    //tip_end_total_weight
+    //in edges
+    for(int v = 0; v<graph.size(); v++){
+        if(v==tip_end){continue;}
+        for(const int&u:graph[v]){
+            if(u==tip_end){
+
+                cout<<"v->tip_end: "<<v<<"->"<<u<<"\n";
+
+                if(!reversed){
+                    tip_end_total_weight+=edge_weight.at({v,u});
+                }
+                else{
+                    tip_end_total_weight+=edge_weight.at({u,v});
+                }
+                    
+            }
+        }
+    }
+    //out edges
+    for(const int& u:graph[tip_end]){
+
+        cout<<"tip_end->u: "<<tip_end<<"->"<<u<<"\n";
+
+        if(!reversed){
+            tip_end_total_weight+=edge_weight.at({tip_end,u});
+        }
+        else{
+            tip_end_total_weight+=edge_weight.at({u,tip_end});
+        }
+            
+    }
+
+    float avrg_weight = tip_end_total_weight/(in[tip_end]+out[tip_end]);
+
+    cout<<"avrg_weight: "<<avrg_weight<<" tip_weight: "<<tip_weight<<"\n";
+
+    if(tip_weight < max_tip_weight_diff * avrg_weight){
+
+        cout<<"tip is error!\n";
+
+        return true;
+    }
+
+    cout<<"tip is not error!\n";
+
+    return false;
+}
+
+
 void remove_tip_path(
     int curr,
     vector<int>& in,vector<int>&out,
@@ -293,7 +480,8 @@ void remove_tip_path(
     queue<int>&tips,
     int& tips_removed,
     const int& max_tip_size,
-    map<pair<int,int>,int>&edge_weight
+    const map<pair<int,int>,int>&edge_weight,
+    const bool& reversed = false
 ){
     //since the graph changes I need to make sure
     //that what I had in the queue is still valid
@@ -301,41 +489,23 @@ void remove_tip_path(
 
     vector<int> path;
 
-    //cout<<"curr path: ";
+    cout<<"curr path: ";
 
     path.push_back(curr);
     while(out[curr] == 1 && in[curr] <= 1 && path.size()<=max_tip_size+1){
         path.push_back(graph[curr][0]);
 
-        //cout<<curr<<" ";
+        cout<<curr<<" ";
 
         curr = graph[curr][0];
     }
 
-    //cout<<"\n";
+    cout<<"\n";
 
     int edge_count = path.size()-1;
     if(edge_count>0 && edge_count <= max_tip_size && (in[curr] > 1 || out[curr] > 1 || out[curr] == 0)){
-        float tip_weight = get_path_weight(path,edge_weight);
-        float tip_end_total_weight = 0;
 
-        //in edges
-        for(int v = 0; v<graph.size(); i++){
-            if(v==curr){continue;}
-            for(const int&u:graph[v]){
-                if(u==curr){
-                    tip_end_total_weight+=edge_weight[{v,u}];
-                }
-            }
-        }
-        //out edges
-        for(const int& u:graph[curr]){
-            tip_end_total_weight+=edge_weight[{curr,u}];
-        }
-
-        float avrg_weight = tip_end_total_weight/(in[curr]+out[curr]);
-
-        if(tip_weight > 0.2*avrg_weight){return;}
+        if(!tip_is_error(graph,path,curr,edge_weight,reversed,in,out)){return;}
 
         for(int i = 0; i<edge_count; i++){
             //remove edge u->v
@@ -347,7 +517,7 @@ void remove_tip_path(
             out[u]--;
             tips_removed++;
 
-            //cout<<u<<"->"<<v<<" removed\n";
+            cout<<u<<"->"<<v<<" removed\n";
 
             //add new tip to queue if the removal of the current one made another
             if(in[v] == 0 && out[v] > 0){
@@ -372,7 +542,7 @@ vector<vector<int>> create_reverse_graph(const vector<vector<int>>& graph){
 }
 
 
-int remove_tips(vector<vector<int>>&graph, const int& max_tip_size){
+int remove_tips(vector<vector<int>>&graph, const int& max_tip_size,const map<pair<int,int>,int>&edge_weight){
     int vert_count = graph.size();
     vector<vector<int>> r_graph = create_reverse_graph(graph);
     vector<int> in(vert_count,0),out(vert_count,0);
@@ -390,15 +560,15 @@ int remove_tips(vector<vector<int>>&graph, const int& max_tip_size){
         if(!tips.empty()){
             int tip = tips.front();
             tips.pop();
-            remove_tip_path(tip,in,out,graph,r_graph,tips,tips_removed,max_tip_size);
+            remove_tip_path(tip,in,out,graph,r_graph,tips,tips_removed,max_tip_size,edge_weight);
         }
         if(!r_tips.empty()){
             int tip = r_tips.front();
             r_tips.pop();
 
             //cout<<"backward tip: "<<tip<<"\n";
-
-            remove_tip_path(tip,r_in,r_out,r_graph,graph,r_tips,tips_removed,max_tip_size);
+            bool reversed = true;
+            remove_tip_path(tip,r_in,r_out,r_graph,graph,r_tips,tips_removed,max_tip_size,edge_weight,reversed);
         }
     }
     return tips_removed;
@@ -415,8 +585,13 @@ pair<int,int> find_start_edge(
 ){
     for(int v = 0; v<graph.size(); v++){
         if(out_count[v] > 0 && !(out_count[v] == 1 && in_count[v] == 1)){
+            cout<<"graph["<<v<<"].size(): "<<graph[v].size()<<"\n";
             for(int i = 0; i<graph[v].size(); i++){
+                cout<<"potential start edge: "<<v<<"->"<<graph[v][i]<<"\n";
                 if(!visited[v][i]){
+
+                    cout<<"new start edge: "<<v<<"->"<<graph[v][i]<<"\n";
+
                     return {v,i};
                 }
             }
@@ -494,7 +669,7 @@ void sequence_genome(
     const vector<string>&id_to_str
 ){
     //need to remove tips first to not mistake them with bubbles
-    remove_tips(graph,2*k);
+    remove_tips(graph,2*k,edge_weight);
     remove_bubbles(graph,2*k,edge_weight);
 
     vector<string> contigs = find_contigs(graph,id_to_str);
@@ -505,7 +680,7 @@ void sequence_genome(
 
 
 int main(){
-    int k = 20;
+    int k = 3;
     vector<string>entries;
     string entry;
     int count;

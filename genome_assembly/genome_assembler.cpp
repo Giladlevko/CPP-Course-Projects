@@ -21,7 +21,6 @@ using namespace std;
 //meaning the path that uses the most agreed upon k-mers
 
 class DE_BRUIJN_GRAPH;
-class BUBBLE_REMOVER;
 
 struct edge{
     edge(int t,int w):to(t),weight(w),visits_left(w){}
@@ -49,6 +48,9 @@ struct DE_BRUIJN_ROW{
     }
     void push_back_edge(const edge& e){
         row.push_back(e);
+    }
+    void erase(const int& i){
+        row.erase(row.begin()+i);
     }
 };
 
@@ -96,6 +98,18 @@ class DE_BRUIJN_GRAPH{
                 }
             }
             return -1;
+        }
+
+        void remove_edge(const int& v, const int& u){
+            int i = find_edge(v,u);
+            if(i==-1){return;}
+            graph[v].erase(i);
+            in_deg[u]--;
+            out_deg[v]--;
+        }
+
+        size_t size(){
+            return graph.size();
         }
 
         
@@ -194,21 +208,34 @@ class DE_BRUIJN_GRAPH{
                 graph[v].push_back_edge(e);
             }
 
+            class BUBBLE_REMOVER;
+            class TIP_REMOVER;
+
 
 };
 
 
-
-
-class BUBBLE_REMOVER{
+class DE_BRUIJN_GRAPH:: BUBBLE_REMOVER{
     public:
-        BUBBLE_REMOVER(DE_BRUIJN_GRAPH&g):graph(g),in_deg(g.in_deg),out_deg(g.out_deg){
+        BUBBLE_REMOVER(DE_BRUIJN_GRAPH&g,int depth):
+        graph(g),in_deg(g.in_deg),out_deg(g.out_deg),max_depth(depth){}
+
+        ~BUBBLE_REMOVER() = default;
+
+
+        int remove_bubbles(){
             graph.update_edge_degree();
+            unordered_set<int>in_cannidates,out_cannidates;
+            record_valid_bubble_vertices_cannidates(in_cannidates,out_cannidates);
+            return pop_valid_bubbles(in_cannidates,out_cannidates);
         }
+
+
     private:
         DE_BRUIJN_GRAPH& graph;
         vector<int>&in_deg;
         vector<int>&out_deg;
+        int max_depth;
 
         void record_valid_bubble_vertices_cannidates(
             unordered_set<int>&in_cannidates,unordered_set<int>&out_cannidates
@@ -224,8 +251,8 @@ class BUBBLE_REMOVER{
             }
         }
 
-        bool disjoint_paths(const vector<int>&a,const vector<int>&b,const int& vert_count){
-            vector<bool>visited(vert_count,false);
+        bool disjoint_paths(const vector<int>&a,const vector<int>&b){
+            vector<bool>visited(graph.size(),false);
             int a_size = a.size();
             int b_size = b.size();
             for(const int& u:a){
@@ -244,8 +271,7 @@ class BUBBLE_REMOVER{
             vector<int>&path,
             vector<bool>&visited,
             unordered_set<int>&in_cannidates,
-            unordered_map<int,vector<vector<int>>>& to_w_paths,
-            const int& max_depth
+            unordered_map<int,vector<vector<int>>>& to_w_paths
         ){
             //depth is in edges count not vertex count
             int depth = path.size()-1;
@@ -264,7 +290,7 @@ class BUBBLE_REMOVER{
                 visited[u] = true;
                 path.push_back(u);
 
-                find_paths(u,path,visited,in_cannidates,to_w_paths,max_depth);
+                find_paths(u,path,visited,in_cannidates,to_w_paths);
 
                 //we track back here so we could use this
                 //vertex for another path to some other w
@@ -287,259 +313,276 @@ class BUBBLE_REMOVER{
             }
             return total_weight / edge_count;
         }
-        // need to continue refactoring the bubble removal
+        void remove_path(const vector<int>&path){
+            int size = path.size();
+            for(int i = 0; i< size-1; i++){
+                const int& u = path[i];
+                const int& v = path[i+1];
+                graph.remove_edge(u,v);
+            }
+        }
 
+        int pop_valid_bubbles(
+            unordered_set<int>&in_cannidates,unordered_set<int>&out_cannidates
+        ){
+            int bubble_count = 0;
+            int vert_count = graph.size();
+            
+            for(const int& v:out_cannidates){
+                //keeps track af all paths from v to some w (an in_candidate)
+                unordered_map<int,vector<vector<int>>> to_w_paths;
+
+                vector<bool>visited(vert_count,false);
+                visited[v] = true;
+                vector<int>path = {v};
+            
+                //records all paths from v to w in the to_w_paths
+                find_paths(v,path,visited,in_cannidates,to_w_paths);
+
+                //for each pair of paths from v to some w we check
+                //if all the inward nodes are different from each other
+                //(if the two paths are disjoint) if they are then a bubble exist
+                //so we count it
+                for(const auto& w_paths:to_w_paths){
+                    //w_paths.second is the paths from v to w
+                    int path_count = w_paths.second.size();
+
+                    for(int i = 0; i<path_count; i++){
+                        for(int j = i+1; j<path_count; j++){
+                            if(disjoint_paths(w_paths.second[i],w_paths.second[j])){
+                                double weight_i = get_path_weight(w_paths.second[i]);
+                                double weight_j = get_path_weight(w_paths.second[j]);
+                                const vector<int>&path_to_remove = weight_i > weight_j ? w_paths.second[j] : w_paths.second[i];
+                                
+                                /*
+                                cout<<"bubble path removed:\n";
+                                for(const int&v:path_to_remove){
+                                    cout<<v<<" ";
+                                }
+                                cout<<"\n";
+                                //*/
+
+                                remove_path(path_to_remove);
+                                bubble_count++;
+                            }
+                        }
+                    }
+                }
+            }
+            return bubble_count;
+        }
 
 };
 
 
 
 
-void remove_path(const vector<int>&path, vector<vector<int>>&graph){
-    int size = path.size();
-    for(int i = 0; i< size-1; i++){
-        const int& u = path[i];
-        const int& v = path[i+1];
-        auto it = find(graph[u].begin(),graph[u].end(),v);
-        if(it != graph[u].end()){
-            graph[u].erase(it);
+
+class DE_BRUIJN_GRAPH:: TIP_REMOVER{
+    public:
+        TIP_REMOVER(DE_BRUIJN_GRAPH&g,int max_tip):
+        graph(g),in_deg(g.in_deg),out_deg(g.out_deg),max_tip_size(max_tip){}
+
+        void remove_tips(){
+            while(true){
+                int forward_removed = remove_forward_tips();
+                int backward_removed = remove_backward_tips();
+                if(forward_removed + backward_removed == 0){
+                    break;
+                }
+            }
+
         }
-    }
-}
+
+    private:
+        DE_BRUIJN_GRAPH& graph;
+        vector<int>&in_deg;
+        vector<int>&out_deg;
+        int max_tip_size;
 
 
-int pop_valid_bubbles(
-    vector<vector<int>>&graph,
-    unordered_set<int>&in_cannidates,unordered_set<int>&out_cannidates,
-    const int& max_depth,
-    const map<pair<int,int>,int>& edge_weight
-){
-    int bubble_count = 0;
-    int vert_count = graph.size();
-    
-    for(const int& v:out_cannidates){
-        //keeps track af all paths from v to some w (an in_candidate)
-        unordered_map<int,vector<vector<int>>> to_w_paths;
-
-        vector<bool>visited(vert_count,false);
-        visited[v] = true;
-        vector<int>path = {v};
-       
-        //records all paths from v to w in the to_w_paths
-        find_paths(graph,v,path,visited,in_cannidates,to_w_paths,max_depth);
-
-        //for each pair of paths from v to some w we check
-        //if all the inward nodes are different from each other
-        //(if the two paths are disjoint) if they are then a bubble exist
-        //so we count it
-        for(const auto& w_paths:to_w_paths){
-            //w_paths.second is the paths from v to w
-            int path_count = w_paths.second.size();
-
-            //if the path is only two it means its not a bubble but extra paths from v-u
-            //which we need int the assembler
-            if(path_count == 2){continue;}
-
-            for(int i = 0; i<path_count; i++){
-                for(int j = i+1; j<path_count; j++){
-                    if(disjoint_paths(w_paths.second[i],w_paths.second[j],vert_count)){
-                        double weight_i = get_path_weight(w_paths.second[i],edge_weight);
-                        double weight_j = get_path_weight(w_paths.second[j],edge_weight);
-                        const vector<int>&path_to_remove = weight_i > weight_j ? w_paths.second[j] : w_paths.second[i];
-                        
-                        /*
-                        cout<<"bubble path removed:\n";
-                        for(const int&v:path_to_remove){
-                            cout<<v<<" ";
-                        }
-                        cout<<"\n";
-                        //*/
-
-                        remove_path(path_to_remove,graph);
-                        bubble_count++;
-                    }
+        //backward tips are tips that have 0 out degree
+        //therefore we need to trace them from a node with
+        //at least 2 out - this would mean it might lead to
+        //a dead-end tip
+        void find_backward_tip_origin(queue<int>&tips){
+            int vert_count = graph.size();
+            for(int v = 0; v<vert_count; v++){
+                if(out_deg[v]>=2){
+                    tips.push(v);
                 }
             }
         }
-    }
-    return bubble_count;
-}
 
-int remove_bubbles(vector<vector<int>>&graph,const int& max_depth,const map<pair<int,int>,int>& edge_weight){
-    int vert_count = graph.size();
-    vector<int>in_count(vert_count,0),out_count(vert_count,0);
-    count_in_out_degree(graph,in_count,out_count);
-    unordered_set<int>in_cannidates,out_cannidates;
-    record_valid_bubble_vertices_cannidates(in_count,out_count,in_cannidates,out_cannidates);
-    return pop_valid_bubbles(graph,in_cannidates,out_cannidates,max_depth,edge_weight);
-}
-
-
-
-queue<int> find_tip_candidates(const vector<vector<int>>&graph){
-    queue<int>tips;
-    int vert_count = graph.size();
-    for(int i = 0; i<vert_count; i++){
-        if(graph[i].empty()){
-            tips.push(i);
-        }
-    }
-    return tips;
-}
-
-void remove_edge(vector<vector<int>>&graph,int u,int v){
-    auto it = find(graph[u].begin(),graph[u].end(),v);
-    if(it != graph[u].end()){
-        graph[u].erase(it);
-    }
-}
-
-
-bool tip_is_error(
-    const vector<vector<int>>&graph,
-    const vector<int>&path,
-    const int& tip_end,
-    const map<pair<int,int>,int>&edge_weight,
-    const bool& reversed,
-    const vector<int>& in,const vector<int>&out
-){
-    float tip_weight = 0;
-    float tip_end_total_weight = 0;
-
-    //the max percentage that a tip can be counted as not an error
-    float max_tip_weight_diff = 0.2;
-
-    cout<<"tip_end: "<<tip_end<<"\n";
-
-    //path.push_back(tip_end);
-    for(int i = 0; i<path.size()-1; i++){
-        cout<<path[i]<<"->"<<path[i+1]<<"\n";
-        if(!reversed){
-            tip_weight+=edge_weight.at({path[i],path[i+1]});
-        }
-        else{
-            tip_weight+=edge_weight.at({path[i+1],path[i]});
-        }
-    }
-
-
-    //tip_end_total_weight
-    //in edges
-    for(int v = 0; v<graph.size(); v++){
-        if(v==tip_end){continue;}
-        for(const int&u:graph[v]){
-            if(u==tip_end){
-
-                cout<<"v->tip_end: "<<v<<"->"<<u<<"\n";
-
-                if(!reversed){
-                    tip_end_total_weight+=edge_weight.at({v,u});
+        //forward tips are tips that start with a node
+        //that has 0 in degree. Not all of these will be
+        //tips but they are the place to start tracing
+        void find_forward_tip_origin(queue<int>&tips){
+            int vert_count = graph.size();
+            for(int v = 0; v<vert_count; v++){
+                if(in_deg[v]==0){
+                    tips.push(v);
                 }
-                else{
-                    tip_end_total_weight+=edge_weight.at({u,v});
-                }
-                    
             }
         }
-    }
-    //out edges
-    for(const int& u:graph[tip_end]){
 
-        cout<<"tip_end->u: "<<tip_end<<"->"<<u<<"\n";
-
-        if(!reversed){
-            tip_end_total_weight+=edge_weight.at({tip_end,u});
+        int remove_forward_tips(){
+            queue<int>tips;
+            find_forward_tip_origin(tips);
+            int tips_removed_this_round = 0;
+            while(!tips.empty()){
+                int tip = tips.front();
+                tips.pop();
+                tips_removed_this_round += forward_tip_removal(tip,tips);
+            }
+            return tips_removed_this_round;
         }
-        else{
-            tip_end_total_weight+=edge_weight.at({u,tip_end});
+
+        int remove_backward_tips(){
+            int tips_removed_this_round = 0;
+            queue<int>tips;
+            find_backward_tip_origin(tips);
+            while(!tips.empty()){
+                int tip = tips.front();
+                tips.pop();
+                tips_removed_this_round += backward_tip_removal(tip);
+            }
+            return tips_removed_this_round;
         }
             
-    }
+        
 
-    float avrg_weight = tip_end_total_weight/(in[tip_end]+out[tip_end]);
+        int forward_tip_removal(const int& tip_start,queue<int>&tips){
+            //since the graph changes I need to make sure
+            //that what I had in the queue is still valid
+            //meaning the forward tip indeed has an in degree
+            //that is 0 and out that is 1
+            if(in_deg[tip_start] != 0 || out_deg[tip_start] != 1){return 0;}
 
-    cout<<"avrg_weight: "<<avrg_weight<<" tip_weight: "<<tip_weight<<"\n";
+            int curr = graph[tip_start][0].to;
+            vector<int>path = {tip_start,curr};
+            
+            build_tip_path(path,curr);
 
-    if(tip_weight < max_tip_weight_diff * avrg_weight){
+            const int&tip_end = path.back();
 
-        cout<<"tip is error!\n";
+            int edge_count = path.size()-1;
+            int tips_removed = 0;
+            if(edge_count>0 && (in_deg[tip_end] > 1 || out_deg[tip_end] > 1 || out_deg[tip_end] == 0)){
 
-        return true;
-    }
+                if(!tip_is_error(path)){return 0;}
 
-    cout<<"tip is not error!\n";
+                    remove_tip(path);
+                    tips_removed++;
+                    //add new tip to queue if the removal of the current one made another
+                    if(in_deg[tip_end] == 0 && out_deg[tip_end] > 0){
+                        tips.push(tip_end);
+                    }
 
-    return false;
-}
-
-
-void remove_tip_path(
-    int curr,
-    vector<int>& in,vector<int>&out,
-    vector<vector<int>>&graph,vector<vector<int>>&r_graph,
-    queue<int>&tips,
-    int& tips_removed,
-    const int& max_tip_size,
-    const map<pair<int,int>,int>&edge_weight,
-    const bool& reversed = false
-){
-    //since the graph changes I need to make sure
-    //that what I had in the queue is still valid
-    if(in[curr] !=0 || out[curr] == 0){return;}
-
-    vector<int> path;
-
-    cout<<"curr path: ";
-
-    path.push_back(curr);
-    while(out[curr] == 1 && in[curr] <= 1 && path.size()<=max_tip_size+1){
-        path.push_back(graph[curr][0]);
-
-        cout<<curr<<" ";
-
-        curr = graph[curr][0];
-    }
-
-    cout<<"\n";
-
-    int edge_count = path.size()-1;
-    if(edge_count>0 && edge_count <= max_tip_size && (in[curr] > 1 || out[curr] > 1 || out[curr] == 0)){
-
-        if(!tip_is_error(graph,path,curr,edge_weight,reversed,in,out)){return;}
-
-        for(int i = 0; i<edge_count; i++){
-            //remove edge u->v
-            int u = path[i];
-            int v = path[i+1];
-            remove_edge(graph,u,v);
-            remove_edge(r_graph,v,u);
-            in[v]--;
-            out[u]--;
-            tips_removed++;
-
-            cout<<u<<"->"<<v<<" removed\n";
-
-            //add new tip to queue if the removal of the current one made another
-            if(in[v] == 0 && out[v] > 0){
-                tips.push(v);
             }
+            return tips_removed;
+        }
+
+        int backward_tip_removal(const int& tip_origin){
+            //since the graph changes I need to make sure
+            //that what I had in the queue is still valid
+            //meaning the origin still has out >= 2
+            int tips_removed = 0;
+
+            if(out_deg[tip_origin] < 2){return tips_removed;}
+
+            //need to look at all the edges that could be tips
+            for(int i = graph[tip_origin].size()-1; i>=0; i--){
+
+                int curr = graph[tip_origin][i].to;
+                if(in_deg[curr] != 1){continue;}
+                vector<int> path = {tip_origin,curr};
+
+                build_tip_path(path,curr);
+
+                bool removed_tip = false;
+
+                const int&tip_end = path.back();
+                if(out_deg[tip_end] == 0 && in_deg[tip_end] == 1){
+                    
+                    if(!tip_is_error(path)){continue;}
+
+                    remove_tip(path);
+
+                    tips_removed++;
+                }
+                
+            }
+            return tips_removed;
+        }
+            
+
+        void build_tip_path(vector<int>&path,int curr){
+            /*
+            cout<<"curr path: "<<path[0]<<" "<<curr<<" ";
+            //*/
+            while(out_deg[curr] == 1 && in_deg[curr] == 1 && path.size() <= max_tip_size){
+                curr = graph[curr][0].to;
+                /*
+                cout<<curr<<" ";
+                //*/
+                path.push_back(curr);
+            }
+            /*
+            cout<<"\n";
+            //*/
+        }
+
+        void remove_tip(const vector<int>&path){
+            int edge_count = path.size()-1;
+            for(int i = 0; i<edge_count; i++){
+                const int& u = path[i];
+                const int& v = path[i+1];
+                graph.remove_edge(u,v);
+            }
+        }
+
+
+        bool tip_is_error(const vector<int>&tip){
+
+            const int& origin = tip[0];
+
+            float threshold = 0.2;
+
+            //get tip average weight
+            int tip_total_weight = 0;
+            for(int i = 0; i<tip.size()-1; i++){
+                const int& u = tip[i];
+                const int& v = tip[i+1];
+                int j = graph.find_edge(u,v);
+                if(j != -1){
+                    tip_total_weight += graph[u][j].weight;
+                }
+            }
+            float tip_average_weight = static_cast<float>(tip_total_weight) / (tip.size()-1);
+
+            //get weight of main path (max weight of the out edges of the origin)
+            int main_path_weight = 0;
+            for(int i = 0; i<graph[origin].size(); i++){
+                const int& edge_weight = graph[origin][i].weight;
+                main_path_weight = max(main_path_weight,edge_weight);
+            }
+            //the tip is an error if weight is below threshold relative to main
+            return ( tip_average_weight < main_path_weight * threshold )
 
         }
-    }
-}
+};
 
 
 
-vector<vector<int>> create_reverse_graph(const vector<vector<int>>& graph){
-    int vert_count = graph.size();
-    vector<vector<int>> r_graph(vert_count);
-    for(int v = 0; v<vert_count; v++){
-        for(const int& u:graph[v]){
-            r_graph[u].push_back(v);
-        }
-    }
-    return r_graph;
-}
+
+
+
+
+
+
+
+
 
 
 int remove_tips(vector<vector<int>>&graph, const int& max_tip_size,const map<pair<int,int>,int>&edge_weight){

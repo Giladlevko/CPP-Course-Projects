@@ -9,6 +9,10 @@
 #include<cstdint>
 #include<iostream>
 
+
+#include <windows.h>
+#include <psapi.h>
+
 using namespace std;
 
 
@@ -61,6 +65,13 @@ struct STRING_REF_HASHER{
 };
 
 
+struct NODE_DATA{
+    NODE_DATA(int i= -1,uint16_t c = 0):id(i),count(c){}
+    int id;
+    uint16_t count;
+};
+
+
 struct edge{
     edge(int t,int w):to(t),weight(w),visits_left(w){}
     edge() = default;
@@ -79,7 +90,7 @@ struct DE_BRUIJN_ROW{
     DE_BRUIJN_ROW() = default;
     vector<edge>row;
     edge& operator[](int i){
-        if(i>row.size()){throw std::out_of_range("Column index out of range");}
+        if(i>=row.size()){throw std::out_of_range("Column index out of range");}
         return row[i];
     }
     size_t size(){
@@ -90,6 +101,9 @@ struct DE_BRUIJN_ROW{
     }
     void erase(const int& i){
         row.erase(row.begin()+i);
+    }
+    bool empty(){
+        return row.empty();
     }
 };
 
@@ -111,7 +125,7 @@ class DE_BRUIJN_GRAPH{
         vector<STRING_REF> id_to_str;
         
         DE_BRUIJN_ROW& operator[](int v){
-            if(v>graph.size()){throw std::out_of_range("Row index out of range");}
+            if(v>=graph.size()){throw std::out_of_range("Row index out of range");}
             return graph[v];
         }
         
@@ -187,9 +201,8 @@ class DE_BRUIJN_GRAPH{
                 total_k_mers += (entries[i].size() - k + 1);
             }
 
-            unordered_map<STRING_REF, int, STRING_REF_HASHER> k_mer_count(total_k_mers/5);
+            unordered_map<STRING_REF, NODE_DATA, STRING_REF_HASHER> node_map_data(total_k_mers/5);
 
-            
             
             //min amount of times a k-mer can appear in the graph
             //if it appears less than dont add to the graph
@@ -199,37 +212,30 @@ class DE_BRUIJN_GRAPH{
             //will create a lot of errors that would make the graph huge
             for(const string& e:entries){
                 if(e.size()<k){continue;}
-                for(int i = 0; i<=e.size()-k; i++){
-                    STRING_REF ref(&e,i,k);
-                    k_mer_count[ref]++; 
+                for(int i = 0; i<=e.size()-k+1; i++){
+                    STRING_REF ref(&e,i,k-1);
+                    node_map_data[ref].count++; 
                 }
             }
-            size_t valid_k_mers = 0;
-            for(const auto& p:k_mer_count){
-                if(p.second>=min_freq){
-                    valid_k_mers++;
-                }
-            }
-            
-            unordered_map<STRING_REF, int, STRING_REF_HASHER> str_to_id(valid_k_mers);
 
             for(const string& e:entries){
                 if(e.size()<k){continue;}
                 //sliding a window through the entry to get all k-mers
                 for(int i = 0; i<=e.size()-k; i++){
 
-                    STRING_REF k_mer_ref(&e,i,k);
-                    //filtering rare k-mers to avoid making the graph huge
-                    auto it = k_mer_count.find(k_mer_ref);
-                    if(it == k_mer_count.end() || it->second < min_freq){continue;}
-
                     //vert size is k-1 so the edge is k long
                     STRING_REF pre(&e,i,k-1);
                     STRING_REF suff(&e,i+1,k-1);
+
+                    //filtering rare k-mers to avoid making the graph huge
+                    auto pre_it = node_map_data.find(pre);
+                    auto suff_it = node_map_data.find(suff);
+                    if(pre_it == node_map_data.end() || pre_it->second.count < min_freq){continue;}
+                    if(suff_it == node_map_data.end() || suff_it->second.count < min_freq){continue;}
+
                     
-                    
-                    int u = get_id(pre,str_to_id);
-                    int v = get_id(suff,str_to_id);
+                    int u = get_id(pre_it);
+                    int v = get_id(suff_it);
 
                     /*
                     cout<<u<<"->"<<v<<" = "<<pre<<"->"<<suff<<"\n";
@@ -251,17 +257,13 @@ class DE_BRUIJN_GRAPH{
         
         
         
-        int get_id(
-            const STRING_REF& s,
-            unordered_map<STRING_REF,int,STRING_REF_HASHER>& str_to_id
-        ){
-            auto it = str_to_id.find(s);
-            if(it != str_to_id.end()){
-                return it->second;
+        int get_id(unordered_map<STRING_REF, NODE_DATA, STRING_REF_HASHER>::iterator it){
+            if(it->second.id != -1){
+                return it->second.id;
             }
             int id = id_to_str.size();
-            id_to_str.push_back(s);
-            str_to_id[s] = id;
+            id_to_str.push_back(it->first);
+            it->second.id = id;
             add_row();
             return id;
         }
@@ -434,25 +436,26 @@ class DE_BRUIJN_GRAPH{
                                     double weight_i = get_path_weight(w_paths.second[i]);
                                     double weight_j = get_path_weight(w_paths.second[j]);
                                     const vector<int>&path_to_remove = (
-                                        weight_i > weight_j ? w_paths.second[j] : w_paths.second[i]);
-                                        
-                                        /*
-                                        cout<<"bubble path removed:\n";
-                                        for(const int&v:path_to_remove){
-                                        cout<<v<<" ";
-                                        }
-                                        cout<<"\n";
-                                        //*/
-                                        
-                                        remove_path(path_to_remove);
-                                        bubble_count++;
+                                    weight_i > weight_j ? w_paths.second[j] : w_paths.second[i]);
+                                    
+                                    /*
+                                    cout<<"bubble path removed:\n";
+                                    for(const int&v:path_to_remove){
+                                    cout<<v<<" ";
                                     }
+                                    cout<<"\n";
+                                    //*/
+                                    
+                                    remove_path(path_to_remove);
+                                    bubble_count++;
                                 }
                             }
                         }
                     }
-                    return bubble_count;
                 }
+               return bubble_count;     
+            }
+                
                 
         };
             
@@ -589,8 +592,8 @@ class DE_BRUIJN_GRAPH{
                         
                         const int&tip_end = path.back();
                         if(out_deg[tip_end] == 0 && in_deg[tip_end] == 1){
-                            
-                            if(!tip_is_error(path)){continue;}
+                            bool is_forward = true;
+                            if(!tip_is_error(path,is_forward)){continue;}
                             
                             remove_tip(path);
                             
@@ -628,9 +631,9 @@ class DE_BRUIJN_GRAPH{
                 }
                 
                 
-                bool tip_is_error(const vector<int>&tip){
-                    
-                    const int& origin = tip[0];
+                bool tip_is_error(const vector<int>&tip,bool is_forward = false){
+                    int origin_indx = is_forward ? tip.size()-1 : 0;
+                    const int& origin = tip[origin_indx];
                     
                     float threshold = 0.2;
                     
@@ -662,10 +665,19 @@ class DE_BRUIJN_GRAPH{
         
     };
     
-    
-    
-    
-    
+
+
+void print_peak_memory(){
+    PROCESS_MEMORY_COUNTERS info;
+    if(GetProcessMemoryInfo(GetCurrentProcess(), &info, sizeof(info))){
+        double peak_mb = info.PeakWorkingSetSize / (1024.0 * 1024.0);
+        cout << "\n[PEAK MEMORY] " << peak_mb << " MB\n";
+    }
+}  
+
+
+
+
     
     
     class GENOME_ASSEMBLER{
@@ -675,9 +687,9 @@ class DE_BRUIJN_GRAPH{
             /*
             cout<<"original graph:\n";
             graph.print_graph();
-            /*/
-            graph.remove_tips_and_bubbles(2*k_mer_size);
-            /*
+            //*/
+            graph.remove_tips_and_bubbles(15);
+            //*
             cout<<"\nclean graph:\n";
             graph.print_graph();
             //*/
@@ -686,6 +698,7 @@ class DE_BRUIJN_GRAPH{
         void assemble_genome(){
             graph.update_edge_degree();
             print_contigs();
+            print_peak_memory();
         }
         
         private:
@@ -718,6 +731,15 @@ class DE_BRUIJN_GRAPH{
                 }
             }
         }
+
+        int find_active_edge(int v){
+            for(int i = 0; i<graph[v].size(); i++){
+                if(graph[v][i].visits_left>0){
+                    return i;
+                }
+            }
+            return -1;
+        }
         
         void print_contigs(){
             
@@ -738,7 +760,10 @@ class DE_BRUIJN_GRAPH{
                 cout<<id_to_str[v]; 
                 id_to_str[u].print_last_char();
                 int curr = u;
-                while(graph.in_deg[curr] == 1 && graph.out_deg[curr] == 1){
+                while(
+                    graph.in_deg[curr] == 1 && graph.out_deg[curr] == 1 &&
+                     !graph[curr].empty() && graph[curr][0].visits_left>0
+                    ){
                     const int& next = graph[curr][0].to;
                     graph[curr][0].visits_left--;
                     /*
@@ -766,9 +791,11 @@ class DE_BRUIJN_GRAPH{
                     
                     int curr = target;
                     
-                    while(curr != v){
-                        const int& next = graph[curr][0].to;
-                        graph[curr][0].visits_left--;
+                    while(curr != v && !graph[curr].empty()){
+                        int edge_indx = find_active_edge(curr);
+                        if(edge_indx == -1){break;}
+                        const int& next = graph[curr][edge_indx].to;
+                        graph[curr][edge_indx].visits_left--;
                         id_to_str[next].print_last_char();
                         curr = next;
                     }

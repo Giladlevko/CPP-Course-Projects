@@ -7,9 +7,9 @@
 
 using namespace std;
 
-const int gene_len = 500;
+const int gene_len = 500000;
 const int read_len = 100;
-const int coverage = 10;
+const int coverage = 30;
 const string bases = "ACGT";
 
 

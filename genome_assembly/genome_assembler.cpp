@@ -93,7 +93,7 @@ struct DE_BRUIJN_ROW{
         if(i>=row.size()){throw std::out_of_range("Column index out of range");}
         return row[i];
     }
-    size_t size(){
+    size_t size()const{
         return row.size();
     }
     void push_back_edge(const edge& e){
@@ -102,10 +102,22 @@ struct DE_BRUIJN_ROW{
     void erase(const int& i){
         row.erase(row.begin()+i);
     }
-    bool empty(){
+    bool empty()const{
         return row.empty();
     }
 };
+
+
+template<typename K, typename V, typename H>
+void print_unordered_map_mem_size(const unordered_map<K,V,H>&map){
+    int node_overhead = 32;
+    cout<<"\nmap size: "<<
+    (
+        sizeof(unordered_map<K,V,H>) + (map.bucket_count()*sizeof(void*)) +
+        (map.size() * (sizeof(K) + sizeof(V) + node_overhead)) + sizeof(H)
+    )/(1024.0*1024)
+    <<" MB\n";
+}
 
 
 
@@ -162,8 +174,16 @@ class DE_BRUIJN_GRAPH{
             out_deg[v]--;
         }
         
-        size_t size(){
+        size_t size()const{
             return graph.size();
+        }
+
+        size_t get_total_edges(){
+            size_t total = 0;
+            for(int i = 0; i<graph.size(); i++){
+                total += graph[i].size();
+            }
+            return total;
         }
         
         void remove_tips_and_bubbles(int max_depth){
@@ -185,9 +205,42 @@ class DE_BRUIJN_GRAPH{
                 }
             }
         }
-    
+        
+
+        void print_graph_mem_size(){
+            size_t total = 0;
+            for(int i = 0; i<graph.size(); i++){
+                total += get_row_mem_size(graph[i]);
+            }
+            cout<<"\ngraph size: "<<total/(1024.0*1024)<<" MB\n";
+        }
+
     
     private:
+
+        void build_seen_twice_arr(
+            const vector<string>& entries,
+            vector<bool>&seen_twice,
+            const STRING_REF_HASHER& hasher, 
+            const size_t& size, const int& k
+        ){
+            seen_twice.assign(size,false);
+            vector<bool>seen_once(size,false);
+            for(const string& e:entries){
+                if(e.size()<k){continue;}
+                for(int i = 0; i<=e.size()-k+1; i++){
+                    STRING_REF ref(&e,i,k-1);
+                    int pos_index = hasher(ref)%size;
+                    if(!seen_once[pos_index]){
+                        seen_once[pos_index] = true;
+                    }
+                    else{
+                        seen_twice[pos_index] = true;
+                    }
+                    
+                }
+            }
+        }
     
         void create_k_mer_graph(
             const vector<string>& entries,const int& k
@@ -200,8 +253,12 @@ class DE_BRUIJN_GRAPH{
                 if(entries[i].size()<k){continue;}
                 total_k_mers += (entries[i].size() - k + 1);
             }
+            STRING_REF_HASHER hasher;
+            size_t seen_size = 1ULL << 28;
+            vector<bool>seen_twice;
+            build_seen_twice_arr(entries,seen_twice,hasher,seen_size,k);
 
-            unordered_map<STRING_REF, NODE_DATA, STRING_REF_HASHER> node_map_data(total_k_mers/5);
+            unordered_map<STRING_REF, NODE_DATA, STRING_REF_HASHER> node_map_data;
 
             
             //min amount of times a k-mer can appear in the graph
@@ -214,9 +271,14 @@ class DE_BRUIJN_GRAPH{
                 if(e.size()<k){continue;}
                 for(int i = 0; i<=e.size()-k+1; i++){
                     STRING_REF ref(&e,i,k-1);
-                    node_map_data[ref].count++; 
+                    size_t pos_in_seen = hasher(ref)%seen_size;
+                    if(seen_twice[pos_in_seen]){
+                        node_map_data[ref].count++;
+                    }
                 }
             }
+            //clear to save memory
+            seen_twice.clear(); seen_twice.shrink_to_fit();
 
             for(const string& e:entries){
                 if(e.size()<k){continue;}
@@ -252,7 +314,8 @@ class DE_BRUIJN_GRAPH{
                     ++graph[u][v_index];
                 }
             }
-            
+            cout<<"clean map size:";
+            print_unordered_map_mem_size(node_map_data);
         }
         
         
@@ -293,6 +356,13 @@ class DE_BRUIJN_GRAPH{
             graph[v].push_back_edge(e);
         }
         
+
+        size_t get_row_mem_size(DE_BRUIJN_ROW& row){
+            const vector<edge>& vec = row.row;
+            return(sizeof(vector<edge>) + sizeof(edge)*vec.size());
+        }
+
+
         
         //DE BRUIJN GRAPH's private classes
 
@@ -661,9 +731,8 @@ class DE_BRUIJN_GRAPH{
                 }
         };
             
-
-        
-    };
+  
+};
     
 
 
@@ -688,8 +757,10 @@ void print_peak_memory(){
             cout<<"original graph:\n";
             graph.print_graph();
             //*/
+
             graph.remove_tips_and_bubbles(15);
-            //*
+
+            /*
             cout<<"\nclean graph:\n";
             graph.print_graph();
             //*/
@@ -697,8 +768,12 @@ void print_peak_memory(){
         
         void assemble_genome(){
             graph.update_edge_degree();
-            print_contigs();
+            //print_contigs();
+            cout<<"finished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size();
+            graph.print_graph_mem_size();
+
             print_peak_memory();
+            
         }
         
         private:

@@ -37,6 +37,9 @@ struct STRING_REF{
             std::memcmp(str->data() + start, other.str->data() + other.start, length) == 0
         );
     }
+    const char& operator[](size_t i)const{
+        return(str->data()[start+i]);
+    }
     void print_last_char()const{
         cout.write(str->data()+start+length-1,1);
     }
@@ -53,13 +56,19 @@ ostream& operator<<(ostream&out,const STRING_REF& ref){
 
 
 struct STRING_REF_HASHER{
-    //The djb2 hash function
+    //The murmur3 hash function
     size_t operator()(const STRING_REF&ref)const{
-        size_t hash = 5381;
+        size_t hash = 14695981039346656037ULL;
         const char* ptr = ref.str->data() + ref.start;
         for(int i = 0; i<ref.length; i++){
-            hash += ((hash<<5) + hash) + static_cast<unsigned char>(ptr[i]);
+            hash ^= static_cast<size_t>(ptr[i]);
+            hash *= 1099511628211ULL;
         }
+        hash ^= hash>>33;
+        hash *= 0xff51afd7ed558ccdULL;
+        hash ^= hash>>33;
+        hash *= 0xc4ceb9fe1a85ec53ULL;
+        hash ^= hash>>33;
         return hash;
     }
 };
@@ -69,6 +78,188 @@ struct NODE_DATA{
     NODE_DATA(int i= -1,uint16_t c = 0):id(i),count(c){}
     int id;
     uint16_t count;
+};
+
+
+class K_MER_BIT_MAP{
+    public:
+        void push(const STRING_REF&ref){
+            arr.push_back(encode_str_to_bit(ref));
+        }
+
+        string str_at(size_t i){
+            if(i>=arr.size()){
+                throw std::out_of_range("Bit index out of range");
+            }
+            return decode_bit_to_str(i);
+        }
+
+        K_MER_128 bit_at(size_t i){
+            if(i>=arr.size()){
+                throw std::out_of_range("Bit index out of range");
+            }
+            return arr[i];
+        }
+
+        char back_char_at(size_t i){
+            if(i>=arr.size()){
+                throw std::out_of_range("Bit index out of range");
+            }
+            //since I want the last char I
+            //use the low side and I shift by 0
+            //like in (00 10 11) I go to 11 
+            //transform it to its base (T) and return it
+            return get_base(arr[i].second,0);
+        }
+
+    private:
+        typedef pair<uint64_t,uint64_t> K_MER_128;
+        uint16_t k_mer_len;
+        //must be in this order because of how I encoded the bit
+        string bases = "ACGT";
+        vector<K_MER_128> arr;
+
+        K_MER_128 encode_str_to_bit(const STRING_REF&ref){
+            uint64_t low = 0;
+            uint64_t high = 0;
+            uint16_t half_len = k_mer_len/2;
+            for(uint16_t i = 0; i<k_mer_len; i++){
+                uint64_t base = 0;
+                switch(ref[i]){
+                    case 'A': base = 0; break;
+                    case 'C': base = 1; break;
+                    case 'G': base = 2; break;
+                    case 'T': base = 3; break;
+                }
+                //this shifts the high/low by 2 bits to the left
+                //adding 00 to the right which we populate with base
+                //so if we start with G then add T it'll be like this:
+                //10 -> 1000 -> 1011
+                if(i - ref.start < half_len){
+                    high = (high << 2) | base;
+                }
+                else{
+                    low = (low << 2) | base;
+                }
+            }
+            return{high,low};
+        }
+
+        string decode_bit_to_str(const size_t& k_mer_indx){
+            uint16_t half_len = k_mer_len / 2;
+            uint16_t second_half_len = k_mer_len - half_len;
+            string result(k_mer_len,'\0');
+
+            for(uint16_t i = 0; i<half_len; i++){
+                //the shift needed is how many bits away
+                //I am from the far right. this is calculated by 
+                //how many bits I shifted it to get to that pos beforehand
+                //so for 00 10 01 11 lets say I want 10
+                //the shift is 4 -> 2 *( half_len (4) - 1 - i (1) )
+                uint16_t shift = 2 * (half_len-1-i);
+                result[i] = get_base(arr[k_mer_indx].first, shift)
+            }
+            for(uint16_t i = 0; i<second_half_len; i++){
+                //same thing as before just for the low
+                //part of the pair instead of the high
+                uint16_t shift = 2 * (second_half_len-1-i);
+                result[half_len+i] = get_base(arr[k_mer_indx].second, shift);
+            }
+            return result;
+        }
+        char get_base(const uint64_t& half_k_mer,const uint16_t& shift = 0){
+            //shift that bit by shift amount to the right
+            //making it at the far right where I get rid of everything
+            //above the first 2 bits i.e every thing bigger than 3
+            //giving me the index of the base from what I encoded it
+            //i.e 10 = 2 = G which matches the bases' order
+            uint16_t base_index = (half_k_mer >> shift) & 3;
+            return bases[base_index];
+        }
+};
+
+
+struct K_MER_SLOT{
+    K_MER_SLOT():occupied(false){}
+    STRING_REF key;
+    NODE_DATA val;
+    bool occupied;
+};
+class FLAT_K_MER_MAP{
+    public:
+        FLAT_K_MER_MAP(size_t m):max_size(m),bucket(m){}
+        NODE_DATA& operator[](const STRING_REF&ref){
+            return find_or_insert(ref);
+        }
+
+        K_MER_SLOT* find(const STRING_REF&ref){
+            size_t slot_index = hasher(ref) % max_size;
+            size_t start = slot_index;
+            while(bucket[slot_index].occupied){
+                
+                if(bucket[slot_index].key == ref){
+                    return &bucket[slot_index];
+                }
+                (slot_index = slot_index + 1) % max_size;
+                if(slot_index == start){
+                    break;
+                }
+            }
+            return nullptr;
+        }
+
+        void print_mem_size(){
+            cout<<"\nFLAT K_MER MAP SIZE: "<<
+            (
+                (sizeof(vector<K_MER_SLOT>) + (sizeof(K_MER_SLOT) * max_size))
+                / (1024.0 * 1024)
+            ) << " MB\n";
+        }
+
+    private:
+        size_t max_size;
+        vector<K_MER_SLOT>bucket;
+        STRING_REF_HASHER hasher;
+
+        NODE_DATA& find_or_insert(const STRING_REF&ref){
+            size_t slot_index = hasher(ref) % max_size;
+            if(bucket[slot_index].occupied){
+                if(bucket[slot_index].key == ref){
+                    return bucket[slot_index].val;
+                }
+                else{
+                    return find_next_open_or_matching_slot(slot_index,ref);
+                }
+            }
+            else{
+                return create_slot(slot_index,ref);
+            }
+        }
+        NODE_DATA& find_next_open_or_matching_slot(
+            size_t i,const STRING_REF&ref
+        ){
+            int j = (i+1) % max_size;
+           while(bucket[i].occupied){
+                if(j == i){
+                    cout<<"no more space overwriting slot\n";
+                    break;
+                }
+                if(bucket[i].key == ref){
+                    return bucket[i].val;
+                }
+                j = (j+1) % max_size;
+                
+            }
+            return create_slot(j,ref);
+        }
+        NODE_DATA& create_slot(size_t i,const STRING_REF&ref){
+            bucket[i].occupied = true;
+            bucket[i].key = ref;
+            return bucket[i].val;
+        }
+
+        
+
 };
 
 
@@ -247,18 +438,13 @@ class DE_BRUIJN_GRAPH{
         ){
             int count = entries.size();
 
-            //estimate total k_mer amount upper bound
-            size_t total_k_mers = 0;
-            for(int i = 0; i<count; i++){
-                if(entries[i].size()<k){continue;}
-                total_k_mers += (entries[i].size() - k + 1);
-            }
             STRING_REF_HASHER hasher;
-            size_t seen_size = 1ULL << 28;
+            size_t seen_size = (1ULL << 30);
+            cout<<seen_size<<"\n";
             vector<bool>seen_twice;
             build_seen_twice_arr(entries,seen_twice,hasher,seen_size,k);
-
-            unordered_map<STRING_REF, NODE_DATA, STRING_REF_HASHER> node_map_data;
+            size_t map_size = 8000000;
+            FLAT_K_MER_MAP node_map_data(map_size);
 
             
             //min amount of times a k-mer can appear in the graph
@@ -271,7 +457,8 @@ class DE_BRUIJN_GRAPH{
                 if(e.size()<k){continue;}
                 for(int i = 0; i<=e.size()-k+1; i++){
                     STRING_REF ref(&e,i,k-1);
-                    size_t pos_in_seen = hasher(ref)%seen_size;
+                    size_t hashed_val = hasher(ref);
+                    size_t pos_in_seen = hashed_val%seen_size;
                     if(seen_twice[pos_in_seen]){
                         node_map_data[ref].count++;
                     }
@@ -292,8 +479,8 @@ class DE_BRUIJN_GRAPH{
                     //filtering rare k-mers to avoid making the graph huge
                     auto pre_it = node_map_data.find(pre);
                     auto suff_it = node_map_data.find(suff);
-                    if(pre_it == node_map_data.end() || pre_it->second.count < min_freq){continue;}
-                    if(suff_it == node_map_data.end() || suff_it->second.count < min_freq){continue;}
+                    if(pre_it == nullptr || pre_it->val.count < min_freq){continue;}
+                    if(suff_it == nullptr || suff_it->val.count < min_freq){continue;}
 
                     
                     int u = get_id(pre_it);
@@ -315,18 +502,18 @@ class DE_BRUIJN_GRAPH{
                 }
             }
             cout<<"clean map size:";
-            print_unordered_map_mem_size(node_map_data);
+            node_map_data.print_mem_size();
         }
         
         
         
-        int get_id(unordered_map<STRING_REF, NODE_DATA, STRING_REF_HASHER>::iterator it){
-            if(it->second.id != -1){
-                return it->second.id;
+        int get_id(K_MER_SLOT* ptr){
+            if(ptr->val.id != -1){
+                return ptr->val.id;
             }
             int id = id_to_str.size();
-            id_to_str.push_back(it->first);
-            it->second.id = id;
+            id_to_str.push_back(ptr->key);
+            ptr->val.id = id;
             add_row();
             return id;
         }

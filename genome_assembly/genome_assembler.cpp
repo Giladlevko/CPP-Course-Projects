@@ -83,22 +83,97 @@ struct NODE_DATA{
 
 class K_MER_BIT_MAP{
     public:
-        void push(const STRING_REF&ref){
-            arr.push_back(encode_str_to_bit(ref));
+        K_MER_BIT_MAP(uint16_t k_size):k_mer_len(k_size){}
+        K_MER_BIT_MAP() = default;
+
+        typedef pair<uint64_t,uint64_t> K_MER_128;
+        static constexpr size_t NOT_FOUND = static_cast<size_t>(-1);
+
+        void process_reads(const vector<string>&reads){
+            uint64_t high_len = k_mer_len/2;
+            uint64_t prefix_shift = (2 * high_len) - 4; 
+            for(uint64_t prefix = 0; prefix<16; prefix++){
+                vector<K_MER_128> chunk;
+                chunk.reserve(7000000);
+                for(const string& e:reads){
+                    if(e.size()<k_mer_len){
+                        continue;
+                    }
+                    K_MER_128 current_k_mer = encode_str_to_bit(STRING_REF(&e,0,k_mer_len));
+                    if((current_k_mer.first>>prefix_shift) == prefix){
+                        chunk.push_back(current_k_mer);
+                    }
+                    for(size_t i = k_mer_len; i<e.size(); i++){
+                        current_k_mer = append_char_to_k_mer(current_k_mer,e[i]);
+                        if((current_k_mer.first>>prefix_shift) == prefix){
+                            chunk.push_back(current_k_mer);
+                        }
+                    }
+                }
+                sort_k_mer(chunk);
+                clean_bit_arr(chunk);
+
+                arr.insert(arr.end(),chunk.begin(),chunk.end());
+            }
+            
         }
 
-        string str_at(size_t i){
+        size_t size(){
+            return arr.size();
+        }
+
+        string str_at(const size_t& i){
             if(i>=arr.size()){
                 throw std::out_of_range("Bit index out of range");
             }
             return decode_bit_to_str(i);
         }
 
-        K_MER_128 bit_at(size_t i){
+        K_MER_128 operator[](const size_t& i){
+            return bit_at(i);
+        }
+
+        K_MER_128 bit_at(const size_t& i){
             if(i>=arr.size()){
                 throw std::out_of_range("Bit index out of range");
             }
             return arr[i];
+        }
+
+        void sort_k_mer(vector<K_MER_128>&a){
+            sort(a.begin(),a.end());
+        }
+
+        size_t find(const STRING_REF&ref){
+            K_MER_128 bit = encode_str_to_bit(ref);
+            auto it = lower_bound(arr.begin(),arr.end(),bit);
+            if(it != arr.end() && *it == bit){
+                return (distance(arr.begin(),it));
+            }
+            else{
+                return NOT_FOUND;
+            }
+        }
+
+        size_t end(){
+            return NOT_FOUND;
+        }
+
+        uint16_t count_at(size_t i){
+            if(i>=arr.size()){
+                throw std::out_of_range("Bit index out of range");
+            }
+            return count_arr[i];
+        }
+
+        uint16_t count_of_k_mer(const STRING_REF&ref){
+            size_t i = find(ref);
+            if(i != NOT_FOUND){
+                return count_arr[i];
+            }
+            else{
+                return 0;
+            }
         }
 
         char back_char_at(size_t i){
@@ -112,30 +187,35 @@ class K_MER_BIT_MAP{
             return get_base(arr[i].second,0);
         }
 
+        void print_mem_size(){
+            cout<<"\nBIT_MAP_SIZE: "<<
+            (
+                sizeof(vector<K_MER_128>) + sizeof(K_MER_128) * arr.size()+
+                sizeof(vector<uint8_t>) + sizeof(uint8_t) * count_arr.size()
+            ) / (1024.0 * 1024) <<" MB\n";
+        }
+
     private:
-        typedef pair<uint64_t,uint64_t> K_MER_128;
         uint16_t k_mer_len;
         //must be in this order because of how I encoded the bit
         string bases = "ACGT";
         vector<K_MER_128> arr;
+        vector<uint8_t>count_arr;
+        static const uint16_t min_freq = 2;
+        
 
         K_MER_128 encode_str_to_bit(const STRING_REF&ref){
             uint64_t low = 0;
             uint64_t high = 0;
             uint16_t half_len = k_mer_len/2;
             for(uint16_t i = 0; i<k_mer_len; i++){
-                uint64_t base = 0;
-                switch(ref[i]){
-                    case 'A': base = 0; break;
-                    case 'C': base = 1; break;
-                    case 'G': base = 2; break;
-                    case 'T': base = 3; break;
-                }
+                uint64_t base = get_bit_id(ref[i]);
+                
                 //this shifts the high/low by 2 bits to the left
                 //adding 00 to the right which we populate with base
                 //so if we start with G then add T it'll be like this:
                 //10 -> 1000 -> 1011
-                if(i - ref.start < half_len){
+                if(i < half_len){
                     high = (high << 2) | base;
                 }
                 else{
@@ -157,7 +237,7 @@ class K_MER_BIT_MAP{
                 //so for 00 10 01 11 lets say I want 10
                 //the shift is 4 -> 2 *( half_len (4) - 1 - i (1) )
                 uint16_t shift = 2 * (half_len-1-i);
-                result[i] = get_base(arr[k_mer_indx].first, shift)
+                result[i] = get_base(arr[k_mer_indx].first, shift);
             }
             for(uint16_t i = 0; i<second_half_len; i++){
                 //same thing as before just for the low
@@ -175,6 +255,59 @@ class K_MER_BIT_MAP{
             //i.e 10 = 2 = G which matches the bases' order
             uint16_t base_index = (half_k_mer >> shift) & 3;
             return bases[base_index];
+        }
+
+        K_MER_128 append_char_to_k_mer(K_MER_128 k_mer,const char& c){
+            uint16_t high_len = k_mer_len / 2;
+            uint16_t low_len = k_mer_len - high_len;
+
+            //creates 00111...111 so when I do & mask the right most will be removed
+            uint64_t high_mask = (1ULL << (2*high_len)) -1;
+            uint64_t low_mask = (1ULL << (2*low_len)) -1;
+
+            uint64_t base = get_bit_id(c);
+
+            //gets the first two bits that now because
+            //of appending to low need to be moved to back of high
+            uint64_t shifted_from_low = (k_mer.second >> (2*(low_len-1))) & 3;
+            //appends the new base to the left of low and removes the 2 extra at the right
+            k_mer.second = ((k_mer.second << 2) | base) & low_mask;
+            //appends the 2 extra from low to the left of high and removes the two exta at the right
+            k_mer.first = ((k_mer.first << 2) | shifted_from_low) & high_mask;
+            return k_mer;
+        }
+
+        uint64_t get_bit_id(const char& c){
+            uint64_t id = 0;
+            switch(c){
+                case 'A': id = 0; break;
+                case 'C': id = 1; break;
+                case 'G': id = 2; break;
+                case 'T': id = 3; break;
+                default: id = 0;break;
+            }
+            return id;
+        }
+
+
+        void clean_bit_arr(vector<K_MER_128>&a){
+            size_t write_index = 0;
+            size_t size = a.size();
+            for(size_t i = 0; i<size; ){
+                size_t j = i+1;
+                while(j<size && a[i] == a[j]){
+                    j++;
+                }
+                uint16_t freq = j-i;
+                if(freq >= min_freq){
+                    a[write_index] = a[i];
+                    write_index++;
+                    count_arr.push_back(freq);
+                }
+                i = j;
+            }
+            a.resize(write_index);
+            a.shrink_to_fit();
         }
 };
 
@@ -439,33 +572,33 @@ class DE_BRUIJN_GRAPH{
             int count = entries.size();
 
             STRING_REF_HASHER hasher;
-            size_t seen_size = (1ULL << 30);
-            cout<<seen_size<<"\n";
-            vector<bool>seen_twice;
-            build_seen_twice_arr(entries,seen_twice,hasher,seen_size,k);
-            size_t map_size = 8000000;
-            FLAT_K_MER_MAP node_map_data(map_size);
+            //build_seen_twice_arr(entries,seen_twice,hasher,seen_size,k);
+            //size_t map_size = 8000000;
+            //FLAT_K_MER_MAP node_map_data(map_size);
+            K_MER_BIT_MAP node_map_data(k-1);
 
-            
-            //min amount of times a k-mer can appear in the graph
-            //if it appears less than dont add to the graph
-            int min_freq = 2;
+
+            node_map_data.process_reads(entries);
+            size_t size = node_map_data.size();
+            graph.resize(size);
+
             
             //used for initial filtering of rare k-mers because the e-coli genome
             //will create a lot of errors that would make the graph huge
-            for(const string& e:entries){
+            /*for(const string& e:entries){
                 if(e.size()<k){continue;}
                 for(int i = 0; i<=e.size()-k+1; i++){
                     STRING_REF ref(&e,i,k-1);
                     size_t hashed_val = hasher(ref);
                     size_t pos_in_seen = hashed_val%seen_size;
                     if(seen_twice[pos_in_seen]){
-                        node_map_data[ref].count++;
+                        node_map_data.push(ref);
                     }
                 }
             }
             //clear to save memory
             seen_twice.clear(); seen_twice.shrink_to_fit();
+            */
 
             for(const string& e:entries){
                 if(e.size()<k){continue;}
@@ -477,18 +610,20 @@ class DE_BRUIJN_GRAPH{
                     STRING_REF suff(&e,i+1,k-1);
 
                     //filtering rare k-mers to avoid making the graph huge
-                    auto pre_it = node_map_data.find(pre);
-                    auto suff_it = node_map_data.find(suff);
-                    if(pre_it == nullptr || pre_it->val.count < min_freq){continue;}
-                    if(suff_it == nullptr || suff_it->val.count < min_freq){continue;}
+                    //size_t pre_i = node_map_data.find(pre);
+                    //size_t suff_i = node_map_data.find(suff);
+                    //if(pre_i == node_map_data.end() || node_map_data.count_at(pre_i)< min_freq){continue;}
+                    //if(suff_i == node_map_data.end() || node_map_data.count_at(suff_i) < min_freq){continue;}
 
                     
-                    int u = get_id(pre_it);
-                    int v = get_id(suff_it);
+                    size_t u = node_map_data.find(pre);
+                    size_t v = node_map_data.find(suff);
+                    if(u == node_map_data.end()){continue;}
+                    if(v == node_map_data.end()){continue;}
 
-                    /*
-                    cout<<u<<"->"<<v<<" = "<<pre<<"->"<<suff<<"\n";
-                    //*/
+                    
+                    //cout<<u<<"->"<<v<<" = "<<pre<<"->"<<suff<<"\n";
+                    //
 
                     //prevent the same edge from being created twice
                     int v_index = find_edge(u,v);
@@ -512,7 +647,7 @@ class DE_BRUIJN_GRAPH{
                 return ptr->val.id;
             }
             int id = id_to_str.size();
-            id_to_str.push_back(ptr->key);
+            //id_to_str.push_back(ptr->key);
             ptr->val.id = id;
             add_row();
             return id;

@@ -10,8 +10,8 @@
 #include<iostream>
 
 
-#include <windows.h>
-#include <psapi.h>
+//#include <windows.h>
+//#include <psapi.h>
 
 using namespace std;
 
@@ -118,22 +118,32 @@ class K_MER_BIT_MAP{
             
         }
 
-        size_t size(){
+        size_t size()const{
             return arr.size();
         }
 
-        string str_at(const size_t& i){
+        string str_at(const size_t& i)const{
             if(i>=arr.size()){
+                cout<<"size: "<<arr.size()<<" i: "<<i;
                 throw std::out_of_range("Bit index out of range");
             }
             return decode_bit_to_str(i);
         }
 
-        K_MER_128 operator[](const size_t& i){
+        void print_str_at(const size_t& i)const{
+            if(i>=arr.size()){
+                cout<<"size: "<<arr.size()<<" i: "<<i;
+                throw std::out_of_range("Bit index out of range");
+            }
+            print_bit_as_str(i);
+
+        }
+
+        K_MER_128 operator[](const size_t& i)const{
             return bit_at(i);
         }
 
-        K_MER_128 bit_at(const size_t& i){
+        K_MER_128 bit_at(const size_t& i)const{
             if(i>=arr.size()){
                 throw std::out_of_range("Bit index out of range");
             }
@@ -144,7 +154,7 @@ class K_MER_BIT_MAP{
             sort(a.begin(),a.end());
         }
 
-        size_t find(const STRING_REF&ref){
+        size_t find(const STRING_REF&ref)const{
             K_MER_128 bit = encode_str_to_bit(ref);
             auto it = lower_bound(arr.begin(),arr.end(),bit);
             if(it != arr.end() && *it == bit){
@@ -155,7 +165,7 @@ class K_MER_BIT_MAP{
             }
         }
 
-        size_t end(){
+        size_t end()const{
             return NOT_FOUND;
         }
 
@@ -176,15 +186,15 @@ class K_MER_BIT_MAP{
             }
         }
 
-        char back_char_at(size_t i){
+        void print_back_char_at(size_t i)const{
             if(i>=arr.size()){
                 throw std::out_of_range("Bit index out of range");
             }
             //since I want the last char I
             //use the low side and I shift by 0
             //like in (00 10 11) I go to 11 
-            //transform it to its base (T) and return it
-            return get_base(arr[i].second,0);
+            //transform it to its base (T in this case) and print it
+            cout<<get_base(arr[i].second,0);
         }
 
         void print_mem_size(){
@@ -204,7 +214,7 @@ class K_MER_BIT_MAP{
         static const uint16_t min_freq = 2;
         
 
-        K_MER_128 encode_str_to_bit(const STRING_REF&ref){
+        K_MER_128 encode_str_to_bit(const STRING_REF&ref)const{
             uint64_t low = 0;
             uint64_t high = 0;
             uint16_t half_len = k_mer_len/2;
@@ -225,7 +235,7 @@ class K_MER_BIT_MAP{
             return{high,low};
         }
 
-        string decode_bit_to_str(const size_t& k_mer_indx){
+        string decode_bit_to_str(const size_t& k_mer_indx)const{
             uint16_t half_len = k_mer_len / 2;
             uint16_t second_half_len = k_mer_len - half_len;
             string result(k_mer_len,'\0');
@@ -247,7 +257,24 @@ class K_MER_BIT_MAP{
             }
             return result;
         }
-        char get_base(const uint64_t& half_k_mer,const uint16_t& shift = 0){
+
+        //same logic as the decode to str but Here I just print it
+        void print_bit_as_str(const size_t& k_mer_indx)const{
+            uint16_t half_len = k_mer_len / 2;
+            uint16_t second_half_len = k_mer_len - half_len;
+
+            for(uint16_t i = 0; i<half_len; i++){
+                uint16_t shift = 2 * (half_len-1-i);
+                cout<<get_base(arr[k_mer_indx].first, shift);
+            }
+            for(uint16_t i = 0; i<second_half_len; i++){
+                uint16_t shift = 2 * (second_half_len-1-i);
+                cout<<get_base(arr[k_mer_indx].second, shift);
+            }
+        }
+
+
+        char get_base(const uint64_t& half_k_mer,const uint16_t& shift = 0)const{
             //shift that bit by shift amount to the right
             //making it at the far right where I get rid of everything
             //above the first 2 bits i.e every thing bigger than 3
@@ -277,7 +304,7 @@ class K_MER_BIT_MAP{
             return k_mer;
         }
 
-        uint64_t get_bit_id(const char& c){
+        uint64_t get_bit_id(const char& c)const{
             uint64_t id = 0;
             switch(c){
                 case 'A': id = 0; break;
@@ -458,7 +485,7 @@ class DE_BRUIJN_GRAPH{
         
         vector<int>in_deg,out_deg;
         
-        vector<STRING_REF> id_to_str;
+        K_MER_BIT_MAP id_to_str;
         
         DE_BRUIJN_ROW& operator[](int v){
             if(v>=graph.size()){throw std::out_of_range("Row index out of range");}
@@ -524,7 +551,7 @@ class DE_BRUIJN_GRAPH{
             for(int v = 0; v<graph.size(); v++){
                 for(int i = 0; i<graph[v].size(); i++){
                     cout<<v<<"->"<<graph[v][i].to<<" = "
-                    <<id_to_str[v]<<"->"<<id_to_str[graph[v][i].to]
+                    <<id_to_str.str_at(v)<<"->"<<id_to_str.str_at(graph[v][i].to)
                     <<" Weight: "<<graph[v][i].weight<<"\n";
                 }
             }
@@ -575,11 +602,11 @@ class DE_BRUIJN_GRAPH{
             //build_seen_twice_arr(entries,seen_twice,hasher,seen_size,k);
             //size_t map_size = 8000000;
             //FLAT_K_MER_MAP node_map_data(map_size);
-            K_MER_BIT_MAP node_map_data(k-1);
+            id_to_str = K_MER_BIT_MAP(k-1);
 
 
-            node_map_data.process_reads(entries);
-            size_t size = node_map_data.size();
+            id_to_str.process_reads(entries);
+            size_t size = id_to_str.size();
             graph.resize(size);
 
             
@@ -616,10 +643,10 @@ class DE_BRUIJN_GRAPH{
                     //if(suff_i == node_map_data.end() || node_map_data.count_at(suff_i) < min_freq){continue;}
 
                     
-                    size_t u = node_map_data.find(pre);
-                    size_t v = node_map_data.find(suff);
-                    if(u == node_map_data.end()){continue;}
-                    if(v == node_map_data.end()){continue;}
+                    size_t u = id_to_str.find(pre);
+                    size_t v = id_to_str.find(suff);
+                    if(u == id_to_str.end()){continue;}
+                    if(v == id_to_str.end()){continue;}
 
                     
                     //cout<<u<<"->"<<v<<" = "<<pre<<"->"<<suff<<"\n";
@@ -636,13 +663,11 @@ class DE_BRUIJN_GRAPH{
                     ++graph[u][v_index];
                 }
             }
-            cout<<"clean map size:";
-            node_map_data.print_mem_size();
         }
         
         
         
-        int get_id(K_MER_SLOT* ptr){
+        /*int get_id(K_MER_SLOT* ptr){
             if(ptr->val.id != -1){
                 return ptr->val.id;
             }
@@ -651,7 +676,7 @@ class DE_BRUIJN_GRAPH{
             ptr->val.id = id;
             add_row();
             return id;
-        }
+        }*/
         
         void add_row(const DE_BRUIJN_ROW& row){
             graph.push_back(row);
@@ -1057,30 +1082,33 @@ class DE_BRUIJN_GRAPH{
 };
     
 
-
+/*
 void print_peak_memory(){
     PROCESS_MEMORY_COUNTERS info;
     if(GetProcessMemoryInfo(GetCurrentProcess(), &info, sizeof(info))){
         double peak_mb = info.PeakWorkingSetSize / (1024.0 * 1024.0);
         cout << "\n[PEAK MEMORY] " << peak_mb << " MB\n";
     }
-}  
+}
+//*/
 
 
 
 
     
     
-    class GENOME_ASSEMBLER{
-        public:
-        GENOME_ASSEMBLER(const vector<string>&r):reads(r){
+class GENOME_ASSEMBLER{
+    public:
+        GENOME_ASSEMBLER(vector<string>&r):reads(r){
             graph = DE_BRUIJN_GRAPH(reads,k_mer_size);
+            //can remove the reads as I don't need them anymore
+            reads.clear(); reads.shrink_to_fit();
             /*
             cout<<"original graph:\n";
             graph.print_graph();
             //*/
-
-            graph.remove_tips_and_bubbles(15);
+            //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size();
+            graph.remove_tips_and_bubbles(2*k_mer_size);
 
             /*
             cout<<"\nclean graph:\n";
@@ -1090,21 +1118,22 @@ void print_peak_memory(){
         
         void assemble_genome(){
             graph.update_edge_degree();
-            //print_contigs();
-            cout<<"finished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size();
-            graph.print_graph_mem_size();
+            print_contigs();
+            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size();
+            //graph.print_graph_mem_size();
+            //graph.id_to_str.print_mem_size();
 
-            print_peak_memory();
+            //print_peak_memory();
             
         }
         
-        private:
+    private:
         
         const int k_mer_size = 51;
         
         DE_BRUIJN_GRAPH graph;
         
-        const vector<string>&reads;
+        vector<string>&reads;
         
         void find_start_edge(int& u,int& j){
             for(int v = 0; v<graph.size(); v++){
@@ -1142,8 +1171,8 @@ void print_peak_memory(){
             
             //linear contigs starting from a start node that 
             //has out > 0 and !(in == 1 && out == 1)
-            const vector<STRING_REF>&id_to_str = graph.id_to_str;
-            int curr_contig = 1;
+            const K_MER_BIT_MAP&id_to_str = graph.id_to_str;
+            size_t curr_contig = 1;
             while(true){
                 int v = -1,u_index = -1;
                 find_start_edge(v,u_index);
@@ -1154,19 +1183,19 @@ void print_peak_memory(){
                 //*/
                 cout<<">CONTIG"<<curr_contig<<"\n";
                 curr_contig++;
-                cout<<id_to_str[v]; 
-                id_to_str[u].print_last_char();
+                id_to_str.print_str_at(v);
+                id_to_str.print_back_char_at(u);
                 int curr = u;
                 while(
                     graph.in_deg[curr] == 1 && graph.out_deg[curr] == 1 &&
-                     !graph[curr].empty() && graph[curr][0].visits_left>0
-                    ){
+                    !graph[curr].empty() && graph[curr][0].visits_left>0
+                ){
                     const int& next = graph[curr][0].to;
                     graph[curr][0].visits_left--;
                     /*
                     cout<<"->"<<next;
                     //*/
-                    id_to_str[next].print_last_char();
+                    id_to_str.print_back_char_at(next);
                     curr = next;
                 }
                 cout<<"\n";
@@ -1183,8 +1212,8 @@ void print_peak_memory(){
                     const int& target = graph[v][i].to;
                     cout<<">CONTIG"<<curr_contig<<"\n";
                     curr_contig++;
-                    cout<<id_to_str[v];
-                    id_to_str[target].print_last_char();
+                    id_to_str.print_str_at(v);
+                    id_to_str.print_back_char_at(target);
                     
                     int curr = target;
                     
@@ -1193,40 +1222,39 @@ void print_peak_memory(){
                         if(edge_indx == -1){break;}
                         const int& next = graph[curr][edge_indx].to;
                         graph[curr][edge_indx].visits_left--;
-                        id_to_str[next].print_last_char();
+                        id_to_str.print_back_char_at(next);
                         curr = next;
                     }
                     cout<<"\n";
                 }
             }
         }
-    };
+};
     
     
     
     
     
-    int main(){
-        
-        vector<string>entries;
-        string entry;
-        int count;
-        cin>>count;
-        for(int i = 0; i<count; i++){
-            cin>>entry;
-            int pos_1 = entry.find('|');
-            if(pos_1 == string::npos){
-                entries.push_back(entry);
-            }
-            else{
-                int pos_2 = entry.find('|',pos_1+1);
-                string r1 = entry.substr(0,pos_1);
-                string r2 = entry.substr(pos_1+1,pos_2-pos_1-1);
-                entries.push_back(r1);
-                entries.push_back(r2);
-            }
+int main(){
+    vector<string>entries;
+    string entry;
+    int count;
+    cin>>count;
+    for(int i = 0; i<count; i++){
+        cin>>entry;
+        int pos_1 = entry.find('|');
+        if(pos_1 == string::npos){
+            entries.push_back(entry);
         }
-        GENOME_ASSEMBLER assembler(entries);
-        assembler.assemble_genome();
-        
+        else{
+            int pos_2 = entry.find('|',pos_1+1);
+            string r1 = entry.substr(0,pos_1);
+            string r2 = entry.substr(pos_1+1,pos_2-pos_1-1);
+            entries.push_back(r1);
+            entries.push_back(r2);
+        }
     }
+    GENOME_ASSEMBLER assembler(entries);
+    assembler.assemble_genome();
+        
+}

@@ -540,10 +540,21 @@ class DE_BRUIJN_GRAPH{
         void remove_tips_and_bubbles(int max_depth){
             
             TIP_REMOVER tip_remover(*this,max_depth);
-            tip_remover.remove_tips();
-            
             BUBBLE_REMOVER bubble_remover(*this,max_depth);
-            bubble_remover.remove_bubbles();
+            unsigned int total = 0;
+            while(true){
+                unsigned int tips = 0;
+                unsigned int bubbles = 0;
+                tips += tip_remover.remove_tips();
+                bubbles += bubble_remover.remove_bubbles();
+                //cout<<"Total tips this round: "<<tips<<" Total bubbles this round: "<<bubbles<<"\n";
+                total += tips+bubbles;
+                if(tips+bubbles == 0){
+                    break;
+                }
+            }
+            //cout<<"Total in all rounds: "<<total<<"\n";
+            
         }
     
         
@@ -887,16 +898,11 @@ class DE_BRUIJN_GRAPH{
                 TIP_REMOVER(DE_BRUIJN_GRAPH&g,int max_tip):
                 graph(g),in_deg(g.in_deg),out_deg(g.out_deg),max_tip_size(max_tip){}
                 
-                void remove_tips(){
+                int remove_tips(){
                     graph.update_edge_degree();
-                    while(true){
-                        int forward_removed = remove_forward_tips();
-                        int backward_removed = remove_backward_tips();
-                        if(forward_removed + backward_removed == 0){
-                            break;
-                        }
-                    }
-                    
+                    int forward_removed = remove_forward_tips();
+                    int backward_removed = remove_backward_tips();
+                    return backward_removed + forward_removed;
                 }
                 
                 private:
@@ -974,11 +980,11 @@ class DE_BRUIJN_GRAPH{
                     int edge_count = path.size()-1;
                     int tips_removed = 0;
                     if(edge_count>0 && (in_deg[tip_end] > 1 || out_deg[tip_end] > 1 || out_deg[tip_end] == 0)){
-                        
-                        if(!tip_is_error(path)){return 0;}
+                        bool is_forward = true;
+                        if(!tip_is_error(path,is_forward)){return 0;}
                         
                         remove_tip(path);
-                        tips_removed++;
+                        tips_removed+=path.size()-1;
                         //add new tip to queue if the removal of the current one made another
                         if(in_deg[tip_end] == 0 && out_deg[tip_end] > 0){
                             tips.push(tip_end);
@@ -1009,12 +1015,12 @@ class DE_BRUIJN_GRAPH{
                         
                         const int&tip_end = path.back();
                         if(out_deg[tip_end] == 0 && in_deg[tip_end] == 1){
-                            bool is_forward = true;
+                            bool is_forward = false;
                             if(!tip_is_error(path,is_forward)){continue;}
                             
                             remove_tip(path);
                             
-                            tips_removed++;
+                            tips_removed+=path.size()-1;
                         }
                         
                     }
@@ -1107,7 +1113,8 @@ class GENOME_ASSEMBLER{
             cout<<"original graph:\n";
             graph.print_graph();
             //*/
-            //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size();
+            //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
+            //<<"\nVert count: "<<graph.size()<<"\n";
             graph.remove_tips_and_bubbles(2*k_mer_size);
 
             /*
@@ -1119,7 +1126,7 @@ class GENOME_ASSEMBLER{
         void assemble_genome(){
             graph.update_edge_degree();
             print_contigs();
-            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size();
+            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
             //graph.id_to_str.print_mem_size();
 
@@ -1149,7 +1156,7 @@ class GENOME_ASSEMBLER{
                             /*
                             cout<<"new start edge: "<<v<<"->"<<graph[v][i]<<"\n";
                             //*/
-                            graph[v][i].visits_left--;
+                            graph[v][i].visits_left=0;
                             u = v; j = i;
                             return;
                         }
@@ -1191,7 +1198,7 @@ class GENOME_ASSEMBLER{
                     !graph[curr].empty() && graph[curr][0].visits_left>0
                 ){
                     const int& next = graph[curr][0].to;
-                    graph[curr][0].visits_left--;
+                    graph[curr][0].visits_left=0;
                     /*
                     cout<<"->"<<next;
                     //*/
@@ -1207,7 +1214,7 @@ class GENOME_ASSEMBLER{
                     
                     if( graph[v][i].visits_left <=0 ){continue;}
                     
-                    graph[v][i].visits_left--;
+                    graph[v][i].visits_left=0;
                     
                     const int& target = graph[v][i].to;
                     cout<<">CONTIG"<<curr_contig<<"\n";
@@ -1221,7 +1228,7 @@ class GENOME_ASSEMBLER{
                         int edge_indx = find_active_edge(curr);
                         if(edge_indx == -1){break;}
                         const int& next = graph[curr][edge_indx].to;
-                        graph[curr][edge_indx].visits_left--;
+                        graph[curr][edge_indx].visits_left=0;
                         id_to_str.print_back_char_at(next);
                         curr = next;
                     }

@@ -6,6 +6,7 @@
 #include<unordered_set>
 #include<utility>
 #include<queue>
+#include<list>
 #include<cstdint>
 #include<iostream>
 
@@ -211,7 +212,7 @@ class K_MER_BIT_MAP{
         string bases = "ACGT";
         vector<K_MER_128> arr;
         vector<uint8_t>count_arr;
-        static const uint16_t min_freq = 2;
+        static const uint16_t min_freq = 1;
         
 
         K_MER_128 encode_str_to_bit(const STRING_REF&ref)const{
@@ -497,10 +498,10 @@ class DE_BRUIJN_GRAPH{
         void update_edge_degree(){
             in_deg.assign(graph.size(),0);
             out_deg.assign(graph.size(),0);
-            int size = graph.size();
-            for(int v = 0; v<size; v++){
-                for(int j = 0; j<graph[v].size(); j++){
-                    int u = graph[v][j].to;
+            size_t size = graph.size();
+            for(size_t v = 0; v<size; v++){
+                for(size_t j = 0; j<graph[v].size(); j++){
+                    size_t u = graph[v][j].to;
                     in_deg[u]++;
                     out_deg[v]++;
                 }
@@ -838,6 +839,7 @@ class DE_BRUIJN_GRAPH{
             ){
                 int bubble_count = 0;
                 int vert_count = graph.size();
+                vector<vector<int>> paths_to_remove;
                 
                 for(const int& v:out_cannidates){
                     //keeps track af all paths from v to some w (an in_candidate)
@@ -846,6 +848,8 @@ class DE_BRUIJN_GRAPH{
                     vector<bool>visited(vert_count,false);
                     visited[v] = true;
                     vector<int>path = {v};
+
+                    
                     
                     //records all paths from v to w in the to_w_paths
                     find_paths(v,path,visited,in_cannidates,to_w_paths);
@@ -873,14 +877,17 @@ class DE_BRUIJN_GRAPH{
                                     }
                                     cout<<"\n";
                                     //*/
-                                    
-                                    remove_path(path_to_remove);
+                                    paths_to_remove.push_back(path_to_remove);
                                     bubble_count++;
                                 }
                             }
                         }
                     }
                 }
+                for(const vector<int>& path:paths_to_remove){
+                    remove_path(path);
+                }
+
                return bubble_count;     
             }
                 
@@ -1079,7 +1086,7 @@ class DE_BRUIJN_GRAPH{
                         main_path_weight = max(main_path_weight,edge_weight);
                     }
                     //the tip is an error if weight is below threshold relative to main
-                    return ( tip_average_weight < main_path_weight * threshold );
+                    return ( tip_average_weight < main_path_weight * threshold || tip_average_weight < 2);
                     
                 }
         };
@@ -1115,7 +1122,7 @@ class GENOME_ASSEMBLER{
             //*/
             //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
             //<<"\nVert count: "<<graph.size()<<"\n";
-            graph.remove_tips_and_bubbles(2*k_mer_size);
+            graph.remove_tips_and_bubbles(k_mer_size+5);
 
             /*
             cout<<"\nclean graph:\n";
@@ -1126,12 +1133,27 @@ class GENOME_ASSEMBLER{
         void assemble_genome(){
             graph.update_edge_degree();
             print_contigs();
+            //print_eulerian_path();
             //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
             //graph.id_to_str.print_mem_size();
 
             //print_peak_memory();
             
+        }
+
+        void print_eulerian_path(){
+            list<int> path = get_eulerian_path();
+            const K_MER_BIT_MAP&id_to_str = graph.id_to_str;
+            if(path.empty() || path.front() != path.back()){
+                cout<<"0";
+                return;
+            }
+            for(auto it = path.begin(); it!=path.end(); it++){
+                //cout<<"it is: "<<*it<<" ";
+                id_to_str.print_back_char_at(*it);
+            }
+
         }
         
     private:
@@ -1156,7 +1178,7 @@ class GENOME_ASSEMBLER{
                             /*
                             cout<<"new start edge: "<<v<<"->"<<graph[v][i]<<"\n";
                             //*/
-                            graph[v][i].visits_left=0;
+                            
                             u = v; j = i;
                             return;
                         }
@@ -1175,7 +1197,7 @@ class GENOME_ASSEMBLER{
         }
         
         void print_contigs(){
-            
+            size_t contigs_total_length = 0;
             //linear contigs starting from a start node that 
             //has out > 0 and !(in == 1 && out == 1)
             const K_MER_BIT_MAP&id_to_str = graph.id_to_str;
@@ -1185,6 +1207,7 @@ class GENOME_ASSEMBLER{
                 find_start_edge(v,u_index);
                 if(v == -1){break;}
                 const int&u = graph[v][u_index].to;
+                graph[v][u_index].visits_left=0;
                 /*
                 cout<<"starting edge: "<<v<<"->"<<u;
                 //*/
@@ -1192,6 +1215,7 @@ class GENOME_ASSEMBLER{
                 curr_contig++;
                 id_to_str.print_str_at(v);
                 id_to_str.print_back_char_at(u);
+                contigs_total_length+=k_mer_size;
                 int curr = u;
                 while(
                     graph.in_deg[curr] == 1 && graph.out_deg[curr] == 1 &&
@@ -1203,6 +1227,7 @@ class GENOME_ASSEMBLER{
                     cout<<"->"<<next;
                     //*/
                     id_to_str.print_back_char_at(next);
+                    contigs_total_length++;
                     curr = next;
                 }
                 cout<<"\n";
@@ -1221,6 +1246,8 @@ class GENOME_ASSEMBLER{
                     curr_contig++;
                     id_to_str.print_str_at(v);
                     id_to_str.print_back_char_at(target);
+
+                    contigs_total_length += k_mer_size;
                     
                     int curr = target;
                     
@@ -1230,12 +1257,99 @@ class GENOME_ASSEMBLER{
                         const int& next = graph[curr][edge_indx].to;
                         graph[curr][edge_indx].visits_left=0;
                         id_to_str.print_back_char_at(next);
+
+                        contigs_total_length++;
+
                         curr = next;
                     }
                     cout<<"\n";
                 }
             }
+
+            //cout<<"THE TOTAL LENGTH OF ALL CONTIGS IS: "<<contigs_total_length<<"\n";
         }
+
+
+
+        bool graph_has_eulerian_path(){
+            size_t size = graph.size();
+            size_t start_nodes = 0, end_nodes = 0;
+            for(int i = 0; i<size; i++){
+                //for a path to exist there must be at most
+                // a difference of 1 between the in / out degrees
+                if ( abs(graph.in_deg[i] - graph.out_deg[i]) > 1){
+                    return false;
+                }
+                else if(graph.out_deg[i] - graph.in_deg[i] == 1){
+                    start_nodes++;
+
+                }
+
+                else if(graph.in_deg[i] - graph.out_deg[i] == 1){
+                    end_nodes++;
+                }
+
+            }
+            //either there are no start/end nodes or there are 1 of each
+            bool has_path = (start_nodes == 0 && end_nodes == 0) || (start_nodes == end_nodes == 1);
+            return has_path;
+        }
+
+
+        void dfs(list<int>&path,int curr){
+            while(graph.out_deg.at(curr) > 0){
+                //select the next unvisited edge
+                //the out_deg is used both to know how much
+                //edges I have left to discover 
+                //and also to index the next node 
+                size_t next_node_index = --graph.out_deg.at(curr);
+                size_t next_node = graph[curr][next_node_index].to;
+                dfs(path,next_node);
+            }
+            path.push_front(curr);
+        }
+
+
+        size_t get_start_node(){
+            size_t size = graph.size();
+            size_t start = 0;
+            for(int i = 0; i<size; i++){
+                //if a vert has more out than in by 1
+                //it is a unique starting node
+                if((graph.out_deg[i] - graph.in_deg[i]) == 1){return i;}
+
+                //otherwise just choose some node with an out degree
+                //of at least one
+                if(graph.out_deg[i]>0){
+                    start = i;
+                }
+            }
+            return start;
+        }
+
+
+        list<int> get_eulerian_path(){
+            list<int>path;
+            graph.update_edge_degree();
+            if( !graph_has_eulerian_path() ){
+                cout<<"no path!\n";
+                return path;
+            }
+            size_t start_node = get_start_node();
+
+            dfs(path,start_node);
+
+            size_t edge_count = graph.get_total_edges();
+
+            //if we didnt traverse a correct number of verices
+            //i.e edge_count+1 than our path doesnt exist
+            //therefore we should return an empty one;
+            if(path.size() != edge_count+1){path.clear();}
+
+            return path;
+        }
+
+
 };
     
     
@@ -1245,7 +1359,8 @@ class GENOME_ASSEMBLER{
 int main(){
     vector<string>entries;
     string entry;
-    int count;
+
+    /*int count;
     cin>>count;
     for(int i = 0; i<count; i++){
         cin>>entry;
@@ -1260,6 +1375,10 @@ int main(){
             entries.push_back(r1);
             entries.push_back(r2);
         }
+    }*/
+
+    while(cin>>entry && entry != "stop"){
+        entries.push_back(entry);
     }
     GENOME_ASSEMBLER assembler(entries);
     assembler.assemble_genome();

@@ -10,6 +10,8 @@
 #include<cstdint>
 #include<iostream>
 
+//#include<fstream>
+
 
 //#include <windows.h>
 //#include <psapi.h>
@@ -131,12 +133,12 @@ class K_MER_BIT_MAP{
             return decode_bit_to_str(i);
         }
 
-        void print_str_at(const size_t& i)const{
+        void print_str_at(const size_t& i,ostream&out)const{
             if(i>=arr.size()){
                 cout<<"size: "<<arr.size()<<" i: "<<i;
                 throw std::out_of_range("Bit index out of range");
             }
-            print_bit_as_str(i);
+            print_bit_as_str(i,out);
 
         }
 
@@ -187,7 +189,7 @@ class K_MER_BIT_MAP{
             }
         }
 
-        void print_back_char_at(size_t i)const{
+        void print_back_char_at(size_t i,ostream&out)const{
             if(i>=arr.size()){
                 throw std::out_of_range("Bit index out of range");
             }
@@ -195,7 +197,7 @@ class K_MER_BIT_MAP{
             //use the low side and I shift by 0
             //like in (00 10 11) I go to 11 
             //transform it to its base (T in this case) and print it
-            cout<<get_base(arr[i].second,0);
+            out<<get_base(arr[i].second,0);
         }
 
         void print_mem_size(){
@@ -212,7 +214,7 @@ class K_MER_BIT_MAP{
         string bases = "ACGT";
         vector<K_MER_128> arr;
         vector<uint8_t>count_arr;
-        static const uint16_t min_freq = 1;
+        static const uint16_t min_freq = 2;
         
 
         K_MER_128 encode_str_to_bit(const STRING_REF&ref)const{
@@ -260,17 +262,17 @@ class K_MER_BIT_MAP{
         }
 
         //same logic as the decode to str but Here I just print it
-        void print_bit_as_str(const size_t& k_mer_indx)const{
+        void print_bit_as_str(const size_t& k_mer_indx,ostream&out)const{
             uint16_t half_len = k_mer_len / 2;
             uint16_t second_half_len = k_mer_len - half_len;
 
             for(uint16_t i = 0; i<half_len; i++){
                 uint16_t shift = 2 * (half_len-1-i);
-                cout<<get_base(arr[k_mer_indx].first, shift);
+                out<<get_base(arr[k_mer_indx].first, shift);
             }
             for(uint16_t i = 0; i<second_half_len; i++){
                 uint16_t shift = 2 * (second_half_len-1-i);
-                cout<<get_base(arr[k_mer_indx].second, shift);
+                out<<get_base(arr[k_mer_indx].second, shift);
             }
         }
 
@@ -1062,6 +1064,7 @@ class DE_BRUIJN_GRAPH{
                 
                 
                 bool tip_is_error(const vector<int>&tip,bool is_forward = false){
+                    return true;
                     int origin_indx = is_forward ? tip.size()-1 : 0;
                     const int& origin = tip[origin_indx];
                     
@@ -1113,6 +1116,7 @@ void print_peak_memory(){
 class GENOME_ASSEMBLER{
     public:
         GENOME_ASSEMBLER(vector<string>&r):reads(r){
+            estimate_k_size();
             graph = DE_BRUIJN_GRAPH(reads,k_mer_size);
             //can remove the reads as I don't need them anymore
             reads.clear(); reads.shrink_to_fit();
@@ -1122,7 +1126,7 @@ class GENOME_ASSEMBLER{
             //*/
             //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
             //<<"\nVert count: "<<graph.size()<<"\n";
-            graph.remove_tips_and_bubbles(k_mer_size+5);
+            graph.remove_tips_and_bubbles(k_mer_size);
 
             /*
             cout<<"\nclean graph:\n";
@@ -1132,7 +1136,8 @@ class GENOME_ASSEMBLER{
         
         void assemble_genome(){
             graph.update_edge_degree();
-            print_contigs();
+            //ofstream file("genome_assembly/contig_output.txt");
+            print_contigs(cout);
             //print_eulerian_path();
             //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
@@ -1151,18 +1156,42 @@ class GENOME_ASSEMBLER{
             }
             for(auto it = path.begin(); it!=path.end(); it++){
                 //cout<<"it is: "<<*it<<" ";
-                id_to_str.print_back_char_at(*it);
+                id_to_str.print_back_char_at(*it,cout);
             }
 
         }
         
     private:
         
-        const int k_mer_size = 51;
+        int k_mer_size = 51;
         
         DE_BRUIJN_GRAPH graph;
         
         vector<string>&reads;
+
+
+        void estimate_k_size(){
+            size_t gc_count = 0;
+            size_t all_bases = 0;
+            for(const string&e:reads){
+                for(int i = 0; i<e.size(); i++){
+                    if(e[i] == 'C' || e[i] == 'G'){
+                        gc_count++;
+                    }
+                    all_bases++;
+                }
+            }
+            double gc_percent = (static_cast<long double>(gc_count) / all_bases) * 100.0;
+            if(gc_percent < 30.0 || gc_percent > 70.0){
+                k_mer_size = 51;
+            }
+            else{
+                k_mer_size = 21;
+            }
+            //cout<<"KMER SIZE ESTIMATED TO FIT: "<<k_mer_size<<"\n";
+        }
+
+
         
         void find_start_edge(int& u,int& j){
             for(int v = 0; v<graph.size(); v++){
@@ -1196,7 +1225,7 @@ class GENOME_ASSEMBLER{
             return -1;
         }
         
-        void print_contigs(){
+        void print_contigs(ostream&out){
             size_t contigs_total_length = 0;
             //linear contigs starting from a start node that 
             //has out > 0 and !(in == 1 && out == 1)
@@ -1211,10 +1240,10 @@ class GENOME_ASSEMBLER{
                 /*
                 cout<<"starting edge: "<<v<<"->"<<u;
                 //*/
-                cout<<">CONTIG"<<curr_contig<<"\n";
+                out<<">CONTIG"<<curr_contig<<"\n";
                 curr_contig++;
-                id_to_str.print_str_at(v);
-                id_to_str.print_back_char_at(u);
+                id_to_str.print_str_at(v,out);
+                id_to_str.print_back_char_at(u,out);
                 contigs_total_length+=k_mer_size;
                 int curr = u;
                 while(
@@ -1226,11 +1255,11 @@ class GENOME_ASSEMBLER{
                     /*
                     cout<<"->"<<next;
                     //*/
-                    id_to_str.print_back_char_at(next);
+                    id_to_str.print_back_char_at(next,out);
                     contigs_total_length++;
                     curr = next;
                 }
-                cout<<"\n";
+                out<<"\n";
             }
             
             //independent cyclic contigs
@@ -1242,10 +1271,10 @@ class GENOME_ASSEMBLER{
                     graph[v][i].visits_left=0;
                     
                     const int& target = graph[v][i].to;
-                    cout<<">CONTIG"<<curr_contig<<"\n";
+                    out<<">CONTIG"<<curr_contig<<"\n";
                     curr_contig++;
-                    id_to_str.print_str_at(v);
-                    id_to_str.print_back_char_at(target);
+                    id_to_str.print_str_at(v,out);
+                    id_to_str.print_back_char_at(target,out);
 
                     contigs_total_length += k_mer_size;
                     
@@ -1256,13 +1285,13 @@ class GENOME_ASSEMBLER{
                         if(edge_indx == -1){break;}
                         const int& next = graph[curr][edge_indx].to;
                         graph[curr][edge_indx].visits_left=0;
-                        id_to_str.print_back_char_at(next);
+                        id_to_str.print_back_char_at(next,out);
 
                         contigs_total_length++;
 
                         curr = next;
                     }
-                    cout<<"\n";
+                    out<<"\n";
                 }
             }
 
@@ -1360,7 +1389,7 @@ int main(){
     vector<string>entries;
     string entry;
 
-    /*int count;
+    int count;
     cin>>count;
     for(int i = 0; i<count; i++){
         cin>>entry;
@@ -1375,10 +1404,6 @@ int main(){
             entries.push_back(r1);
             entries.push_back(r2);
         }
-    }*/
-
-    while(cin>>entry && entry != "stop"){
-        entries.push_back(entry);
     }
     GENOME_ASSEMBLER assembler(entries);
     assembler.assemble_genome();

@@ -51,6 +51,8 @@ void break_gene_into_reads(string& gene,vector<string>&reads){
 void write_rand_test_to_file(){
     string gene = "";
     gen_rand_genome(gene);
+    ofstream gene_file("genome_assembly/reference_gene.txt");
+    gene_file<<">REFERENCE GENOME\n"<<gene;
     vector<string>reads;
     break_gene_into_reads(gene,reads);
     ofstream file("genome_assembly/test_inputs.txt");

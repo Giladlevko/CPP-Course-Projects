@@ -10,7 +10,7 @@
 #include<cstdint>
 #include<iostream>
 
-//#include<fstream>
+#include<fstream>
 
 
 //#include <windows.h>
@@ -121,6 +121,10 @@ class K_MER_BIT_MAP{
             
         }
 
+        int16_t get_min_freq(){
+            return min_freq;
+        }
+
         size_t size()const{
             return arr.size();
         }
@@ -214,7 +218,8 @@ class K_MER_BIT_MAP{
         string bases = "ACGT";
         vector<K_MER_128> arr;
         vector<uint8_t>count_arr;
-        static const uint16_t min_freq = 2;
+        int16_t min_freq = -1;
+
         
 
         K_MER_128 encode_str_to_bit(const STRING_REF&ref)const{
@@ -320,7 +325,40 @@ class K_MER_BIT_MAP{
         }
 
 
+        void estimate_min_freq(const vector<K_MER_128>&a){
+            if(k_mer_len >21){min_freq = 1;}
+            else{
+                size_t size = a.size();
+                
+                size_t singles = 0;
+                size_t all = 0;
+                for(size_t i = 0; i<size; ){
+                    size_t j = i+1;
+                    while(j<size && a[i] ==  a[j]){
+                        j++;
+                    }
+                    if( (j-i) == 1 ){
+                        singles++;
+                    }
+                    all++;
+                    i = j;
+                }
+                double ratio = static_cast<double>(singles)/all;
+                if(ratio < 0.35){
+                    min_freq = 1;
+                }
+                else{
+                    min_freq = 2;
+                }
+            }
+            cout<<"MIN_FREQ ESTIMATED TO BE: "<<min_freq<<"\n";
+        }
+
+
         void clean_bit_arr(vector<K_MER_128>&a){
+            if(min_freq == -1){
+                estimate_min_freq(a);
+            }
             size_t write_index = 0;
             size_t size = a.size();
             for(size_t i = 0; i<size; ){
@@ -1065,6 +1103,7 @@ class DE_BRUIJN_GRAPH{
                 
                 bool tip_is_error(const vector<int>&tip,bool is_forward = false){
                     return true;
+                    if(graph.id_to_str.get_min_freq() == 2){return true;}
                     int origin_indx = is_forward ? tip.size()-1 : 0;
                     const int& origin = tip[origin_indx];
                     
@@ -1089,7 +1128,7 @@ class DE_BRUIJN_GRAPH{
                         main_path_weight = max(main_path_weight,edge_weight);
                     }
                     //the tip is an error if weight is below threshold relative to main
-                    return ( tip_average_weight < main_path_weight * threshold || tip_average_weight < 2);
+                    return ( tip_average_weight < main_path_weight * threshold);
                     
                 }
         };
@@ -1136,8 +1175,8 @@ class GENOME_ASSEMBLER{
         
         void assemble_genome(){
             graph.update_edge_degree();
-            //ofstream file("genome_assembly/contig_output.txt");
-            print_contigs(cout);
+            ofstream file("genome_assembly/contig_output.txt");
+            print_contigs(file);
             //print_eulerian_path();
             //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
@@ -1188,7 +1227,7 @@ class GENOME_ASSEMBLER{
             else{
                 k_mer_size = 21;
             }
-            //cout<<"KMER SIZE ESTIMATED TO FIT: "<<k_mer_size<<"\n";
+            cout<<"KMER SIZE ESTIMATED TO FIT: "<<k_mer_size<<" GC_percent: "<<gc_percent<<"\n";
         }
 
 

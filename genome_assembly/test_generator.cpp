@@ -8,9 +8,25 @@
 using namespace std;
 
 const int gene_len = 500000;
+const int GC_percentage = 10;
 const int read_len = 100;
-const int coverage = 30;
+const int coverage = 12;
+const string GC_bases = "CG";
+const string AT_bases = "AT";
 const string bases = "ACGT";
+
+
+char get_rand_base(mt19937& rng){
+    uniform_int_distribution<int>rand_perc(0,100);
+    uniform_int_distribution<int>rand_index(0,1);
+    if(rand_perc(rng)<=GC_percentage){
+        return GC_bases[rand_index(rng)];
+    }
+    else{
+        return AT_bases[rand_index(rng)];
+    }
+
+}
 
 
 void gen_rand_genome(string& gene){
@@ -18,7 +34,7 @@ void gen_rand_genome(string& gene){
     mt19937 rng(100);
     uniform_int_distribution<int>dist(0,3);
     for(int i = 0; i<gene_len; i++){
-        gene += bases[dist(rng)];
+        gene += get_rand_base(rng);
     }
 }
 

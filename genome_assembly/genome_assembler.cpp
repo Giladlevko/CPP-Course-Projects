@@ -10,7 +10,7 @@
 #include<cstdint>
 #include<iostream>
 
-#include<fstream>
+//#include<fstream>
 
 
 //#include <windows.h>
@@ -113,8 +113,18 @@ class K_MER_BIT_MAP{
                         }
                     }
                 }
+                
                 sort_k_mer(chunk);
                 clean_bit_arr(chunk);
+
+                if(prefix == 0){
+                    bool restart_needed = tune_settings();
+                    if(restart_needed){
+                        reset();
+                        process_reads(reads);
+                        return;
+                    }
+                }
 
                 arr.insert(arr.end(),chunk.begin(),chunk.end());
             }
@@ -212,13 +222,32 @@ class K_MER_BIT_MAP{
             ) / (1024.0 * 1024) <<" MB\n";
         }
 
+        uint16_t get_k_len(){
+            return k_mer_len + 1;
+        }
+
     private:
         uint16_t k_mer_len;
         //must be in this order because of how I encoded the bit
         string bases = "ACGT";
         vector<K_MER_128> arr;
         vector<uint8_t>count_arr;
-        int16_t min_freq = -1;
+        int16_t min_freq = 2;
+
+        static const uint8_t big_k_mer = 50;
+        static const uint8_t low_k_mer = 20;
+        static const uint8_t low_coverage = 15;
+
+        size_t gene_vol = 0;
+        size_t unique_gene = 0;
+
+
+        void reset(){
+            arr.clear();
+            count_arr.clear();
+            gene_vol = 0;
+            unique_gene = 0;
+        }
 
         
 
@@ -324,6 +353,35 @@ class K_MER_BIT_MAP{
             return id;
         }
 
+        double coverage_of_k(){
+            return ( gene_vol / static_cast<double>(unique_gene) );
+        }
+
+        bool tune_settings(){
+            double CK = coverage_of_k();
+            double target_ck = k_mer_len > 30 ? 12.0 : 6.0;
+            if( CK >= target_ck){
+                //already good coverage no need to change anything
+                return false;
+            }
+            else if(k_mer_len > low_k_mer){
+                min_freq = 2;
+                int next_k_len = k_mer_len - 5;
+                int min_k = low_k_mer;
+                k_mer_len = max(min_k,next_k_len);
+            }
+            else if(min_freq != 1){
+                min_freq = 1;
+                k_mer_len = low_k_mer;
+            }
+            else{
+                //ck is low but the best we can do so return false;
+                return false;
+            }
+            //cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
+            return true;
+        }
+
 
         void estimate_min_freq(const vector<K_MER_128>&a){
             if(k_mer_len >21){min_freq = 1;}
@@ -367,6 +425,12 @@ class K_MER_BIT_MAP{
                     j++;
                 }
                 uint16_t freq = j-i;
+
+                if(freq >= 2){
+                    gene_vol += freq;
+                    unique_gene++;
+                }
+
                 if(freq >= min_freq){
                     a[write_index] = a[i];
                     write_index++;
@@ -377,6 +441,8 @@ class K_MER_BIT_MAP{
             a.resize(write_index);
             a.shrink_to_fit();
         }
+        
+
 };
 
 
@@ -527,6 +593,7 @@ class DE_BRUIJN_GRAPH{
         vector<int>in_deg,out_deg;
         
         K_MER_BIT_MAP id_to_str;
+        uint16_t true_k_len;
         
         DE_BRUIJN_ROW& operator[](int v){
             if(v>=graph.size()){throw std::out_of_range("Row index out of range");}
@@ -658,6 +725,7 @@ class DE_BRUIJN_GRAPH{
 
 
             id_to_str.process_reads(entries);
+            true_k_len = id_to_str.get_k_len();
             size_t size = id_to_str.size();
             graph.resize(size);
 
@@ -788,6 +856,7 @@ class DE_BRUIJN_GRAPH{
             vector<int>&in_deg;
             vector<int>&out_deg;
             int max_depth;
+            
             
             void record_valid_bubble_vertices_cannidates(
                 unordered_set<int>&in_cannidates,unordered_set<int>&out_cannidates
@@ -1155,7 +1224,7 @@ void print_peak_memory(){
 class GENOME_ASSEMBLER{
     public:
         GENOME_ASSEMBLER(vector<string>&r):reads(r){
-            estimate_k_size();
+            //estimate_k_size();
             graph = DE_BRUIJN_GRAPH(reads,k_mer_size);
             //can remove the reads as I don't need them anymore
             reads.clear(); reads.shrink_to_fit();
@@ -1165,7 +1234,7 @@ class GENOME_ASSEMBLER{
             //*/
             //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
             //<<"\nVert count: "<<graph.size()<<"\n";
-            graph.remove_tips_and_bubbles(k_mer_size);
+            graph.remove_tips_and_bubbles(graph.true_k_len);
 
             /*
             cout<<"\nclean graph:\n";
@@ -1175,8 +1244,8 @@ class GENOME_ASSEMBLER{
         
         void assemble_genome(){
             graph.update_edge_degree();
-            ofstream file("genome_assembly/contig_output.txt");
-            print_contigs(file);
+            //ofstream file("genome_assembly/contig_output.txt");
+            print_contigs(cout);
             //print_eulerian_path();
             //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();

@@ -8,7 +8,7 @@
 using namespace std;
 
 const int gene_len = 500000;
-const int GC_percentage = 10;
+const int GC_percentage = 50;
 const int read_len = 100;
 const int coverage = 12;
 const string GC_bases = "CG";
@@ -76,7 +76,7 @@ void write_rand_test_to_file(){
 
     cout<<"Writing to file: genome_assembly/test_inputs.txt\ngenome size: "<<gene_len
     <<"\nread size: "<<reads[0].size()<<"\nread count: "<<reads.size()<<"\nerror percentage: 1%"
-    <<"\ncoverage: "<<coverage;
+    <<"\ncoverage: "<<coverage << "\nGC%: "<<GC_percentage;
     
     file<<reads.size()<<"\n";
     

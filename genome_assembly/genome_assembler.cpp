@@ -5,6 +5,7 @@
 #include<algorithm>
 #include<unordered_set>
 #include<utility>
+#include<functional>
 #include<queue>
 #include<list>
 #include<cstdint>
@@ -91,10 +92,16 @@ class K_MER_BIT_MAP{
 
         typedef pair<uint64_t,uint64_t> K_MER_128;
         static constexpr size_t NOT_FOUND = static_cast<size_t>(-1);
+        struct pair_data{
+            paired_data(uint32_t i,uint16_t d):target_index(i),dist(d){}
+            uint32_t target_index;
+            uint16_t dist;
+        };
+        unordered_map<int,vector<pair_data>> pair_map;
 
-        void process_reads(const vector<string>&reads){
+        void process_reads(const vector<string>&reads,vector<uint16_t>&dist,bool is_pair){
             uint64_t high_len = k_mer_len/2;
-            uint64_t prefix_shift = (2 * high_len) - 4; 
+            uint64_t prefix_shift = (2 * high_len) - 4;
             for(uint64_t prefix = 0; prefix<16; prefix++){
                 vector<K_MER_128> chunk;
                 chunk.reserve(7000000);
@@ -127,6 +134,11 @@ class K_MER_BIT_MAP{
                 }
 
                 arr.insert(arr.end(),chunk.begin(),chunk.end());
+            }
+            if(is_pair){
+                build_pair_link_map(reads,dist);
+                //to save memory I can clear the dist
+                dist.clear(); dist.shrink_to_fit();
             }
             
         }
@@ -169,6 +181,16 @@ class K_MER_BIT_MAP{
 
         void sort_k_mer(vector<K_MER_128>&a){
             sort(a.begin(),a.end());
+        }
+
+        size_t find(const K_MER_128& k_mer){
+            auto it = lower_bound(arr.begin(),arr.end(),k_mer);
+            if(it != arr.end() && *it == k_mer){
+                return (distance(arr.begin(),it));
+            }
+            else{
+                return NOT_FOUND;
+            }
         }
 
         size_t find(const STRING_REF&ref)const{
@@ -226,6 +248,17 @@ class K_MER_BIT_MAP{
             return k_mer_len + 1;
         }
 
+
+        struct K_MER_HASHER{
+            size_t operator()(const K_MER_128& k_mer)const{
+                size_t h1 = hash<uint64_t>{}(k_mer.first);
+                size_t h2 = hash<uint64_t>{}(k_mer.second);
+                return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+            }
+        }
+
+
+
     private:
         uint16_t k_mer_len;
         //must be in this order because of how I encoded the bit
@@ -247,6 +280,25 @@ class K_MER_BIT_MAP{
             count_arr.clear();
             gene_vol = 0;
             unique_gene = 0;
+        }
+
+
+
+        void build_pair_link_map(const vector<string>&reads, const vector<uint16_t>&distances){
+            for(int i = 0; i+1<reads.size(); i+=2){
+                if(reads[i].size() < k_mer_len || reads[i + 1].size() < k_mer_len){
+                    continue;
+                }
+                K_MER_128 k1 = encode_str_to_bit(STRING_REF(&read[i],0,k_mer_len));
+                K_MER_128 k2 = encode_str_to_bit(STRING_REF(&read[i+1],0,k_mer_len));
+                size_t k2_index = find(k2);
+                size_t k1_index = find(k1);
+                if(k2_index != NOT_FOUND && k1_index != NOT_FOUND){
+                    //the index at arr acts as the verex id, 
+                    //if the vertex is 5 then its at index 5 in the arr
+                    pair_map[k1_index].push_back({k2_index,distances[i/2]});
+                }
+            }
         }
 
         
@@ -582,8 +634,8 @@ void print_unordered_map_mem_size(const unordered_map<K,V,H>&map){
 class DE_BRUIJN_GRAPH{
     public:
 
-        DE_BRUIJN_GRAPH(const vector<string>& entries,const int& k){
-            create_k_mer_graph(entries,k);
+        DE_BRUIJN_GRAPH(const vector<string>& entries,const int& k,vector<uint16_t>&dist,bool is_pair){
+            create_k_mer_graph(entries,k,dist,is_pair);
             
         }
         DE_BRUIJN_GRAPH() = default;
@@ -713,7 +765,8 @@ class DE_BRUIJN_GRAPH{
         }
     
         void create_k_mer_graph(
-            const vector<string>& entries,const int& k
+            const vector<string>& entries,const int& k,
+            vector<uint16_t>&dist,bool is_pair
         ){
             int count = entries.size();
 
@@ -724,7 +777,7 @@ class DE_BRUIJN_GRAPH{
             id_to_str = K_MER_BIT_MAP(k-1);
 
 
-            id_to_str.process_reads(entries);
+            id_to_str.process_reads(entries,dist,is_pair);
             true_k_len = id_to_str.get_k_len();
             size_t size = id_to_str.size();
             graph.resize(size);
@@ -1223,9 +1276,11 @@ void print_peak_memory(){
     
 class GENOME_ASSEMBLER{
     public:
-        GENOME_ASSEMBLER(vector<string>&r):reads(r){
+        GENOME_ASSEMBLER(vector<string>&r,vector<uint16_t>&dist,bool is_pair)
+        :reads(r),distances(dist),is_read_pair(is_pair)
+        {
             //estimate_k_size();
-            graph = DE_BRUIJN_GRAPH(reads,k_mer_size);
+            graph = DE_BRUIJN_GRAPH(reads,k_mer_size,distances,is_read_pair);
             //can remove the reads as I don't need them anymore
             reads.clear(); reads.shrink_to_fit();
             /*
@@ -1274,7 +1329,9 @@ class GENOME_ASSEMBLER{
         int k_mer_size = 51;
         
         DE_BRUIJN_GRAPH graph;
-        
+
+        bool is_read_pair;
+        vector<uint16_t>&distances;
         vector<string>&reads;
 
 
@@ -1332,6 +1389,64 @@ class GENOME_ASSEMBLER{
             }
             return -1;
         }
+
+
+
+        int choose_path_from_junction(
+            const vector<int>& contig_path,
+            const K_MER_BIT_MAP&id_to_str
+
+        ){
+            const uint8_t MAX_VARIANCE = 25;
+            int curr_vert = contig_path.back();
+            int edges_count = graph[curr_vert].size();
+            vector<uint16_t>scores(edges_count,0);
+            int path_size = contig_path.size();
+            int max_look_back = min(1000,path_size);
+            for(int steps_back = 1; steps_back<max_look_back; steps_back++){
+                int path_index = path_size - steps_back;
+                int path_node = contig_path[path_index];
+                auto it = id_to_str.pair_map.find(path_node);
+                if(it == id_to_str.pair_map.end()){
+                    continue;
+                }
+                int dist = steps_back -1;
+                for(const auto& data: it->second){
+                    if(abs(dist - data.dist) <= MAX_VARIANCE){
+                        for(int candidate = 0; candidate<edges_count; candidate++){
+                            if(graph[curr_vert][candidate].visits_left>0){
+                                int candidate_target =  graph[curr_vert][candidate].to;
+                                if(candidate_target == data.target_index){
+                                    scores[candidate]++;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            }
+
+            int best_edge = -1;
+            int best_score = 0;
+            bool tie = false;
+            for(int i = 0; i<edges_count; i++){
+                if(scores[i] > best_score){
+                    best_edge = i;
+                    best_score = scores[i];
+                    tie = false;
+                }
+                else if(scores[i] == best_score && best_score>0){
+                    tie = true;
+                }
+            }
+            if(!tie && best_score>=1){
+                return best_edge;
+            }
+            return -1;
+        }
+
+
+
         
         void print_contigs(ostream&out){
             size_t contigs_total_length = 0;
@@ -1490,12 +1605,26 @@ class GENOME_ASSEMBLER{
 };
     
     
-    
+string backward_gene(const string& read){
+    string result(read.size(),'\0');
+    for(int i = 0; i<read.size(); i++){
+        switch(read[i]){
+            case 'A': result[i] = 'T';break;
+            case 'T': result[i] = 'A';break;
+            case 'C': result[i] = 'G';break;
+            case 'G': result[i] = 'C';break;
+            default : result[i] = 'A';break;
+        }
+    }
+    return result;
+}
     
     
 int main(){
     vector<string>entries;
     string entry;
+    vector<uint16_t>distances;
+    bool is_read_pair = false;
 
     int count;
     cin>>count;
@@ -1506,14 +1635,17 @@ int main(){
             entries.push_back(entry);
         }
         else{
+            is_read_pair = true;
             int pos_2 = entry.find('|',pos_1+1);
             string r1 = entry.substr(0,pos_1);
             string r2 = entry.substr(pos_1+1,pos_2-pos_1-1);
             entries.push_back(r1);
             entries.push_back(r2);
+            uint16_t d = (std::stoi(entry.substr(pos_2+1)));
+            distances.push_back(d);
         }
     }
-    GENOME_ASSEMBLER assembler(entries);
+    GENOME_ASSEMBLER assembler(entries,distances,is_read_pair);
     assembler.assemble_genome();
         
 }

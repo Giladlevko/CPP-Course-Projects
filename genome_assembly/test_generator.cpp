@@ -8,12 +8,17 @@
 using namespace std;
 
 const int gene_len = 500000;
-const int GC_percentage = 50;
+const int GC_percentage = 5;
 const int read_len = 100;
-const int coverage = 12;
+const int coverage = 30;
 const string GC_bases = "CG";
 const string AT_bases = "AT";
 const string bases = "ACGT";
+
+const bool is_read_pair = true;
+const int pair_dist_max = 300;
+const int pair_dist_min = 100;
+const int dist_variance = 20;
 
 
 char get_rand_base(mt19937& rng){
@@ -51,17 +56,56 @@ void diff_rand_base(char&base,mt19937& rng){
 
 void break_gene_into_reads(string& gene,vector<string>&reads){
     mt19937 rng(100);
-    uniform_int_distribution<int>dist(0,gene.size()-read_len);
+    int max_start = gene.size()-read_len;
+    
     int read_count = gene.size() * coverage / read_len;
+    if(is_read_pair){
+        read_count /= 2;
+    }
+
     for(int i = 0; i<read_count; i++){
+
+        int actual_d;
+        int mean_d;
+        int actual_max_start = max_start;
+        if(is_read_pair){
+            uniform_int_distribution<int>mean_d_dist(pair_dist_min,pair_dist_max);
+            mean_d = mean_d_dist(rng);
+            uniform_int_distribution<int>d_dist(mean_d - dist_variance, mean_d + dist_variance);
+            actual_d = d_dist(rng);
+            actual_max_start = max_start - (actual_d + read_len);
+        }
+
+        uniform_int_distribution<int>dist(0,actual_max_start);
+
         int start = dist(rng);
         string read = gene.substr(start,read_len);
         //introduce a 1% error
         uniform_int_distribution<int>read_dist(0,read.size()-1);
         int error_i = read_dist(rng);
         diff_rand_base(read.at(error_i),rng);
+        
+
+        if(is_read_pair){
+            int r2_start = start+read_len+actual_d;
+            string read_2 = gene.substr(r2_start, read_len);
+            //introduce a 1% error
+            int error_i = read_dist(rng);
+            diff_rand_base(read_2.at(error_i),rng);
+            read += '|' + read_2 + '|' + to_string(mean_d+read_len);
+        }
         reads.push_back(read);
+
     }
+}
+
+struct my_bool{
+    my_bool(bool t):is_true(t){}
+    bool is_true;
+};
+
+ostream& operator<<(ostream&out,my_bool is_true){
+    return out << (is_true.is_true ? "True" : "False"); 
 }
 
 void write_rand_test_to_file(){
@@ -75,8 +119,9 @@ void write_rand_test_to_file(){
     if(!file){cout<<"could not open file\n";}
 
     cout<<"Writing to file: genome_assembly/test_inputs.txt\ngenome size: "<<gene_len
-    <<"\nread size: "<<reads[0].size()<<"\nread count: "<<reads.size()<<"\nerror percentage: 1%"
-    <<"\ncoverage: "<<coverage << "\nGC%: "<<GC_percentage;
+    <<"\nread size: "<<read_len<<"\nread count: "<<reads.size()<<"\nerror percentage: 1%"
+    <<"\ncoverage: "<<coverage << "\nGC%: "<<GC_percentage <<"\npaired inputes: "
+    <<my_bool(is_read_pair);
     
     file<<reads.size()<<"\n";
     

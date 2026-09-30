@@ -11,7 +11,7 @@
 #include<cstdint>
 #include<iostream>
 
-//#include<fstream>
+#include<fstream>
 
 
 //#include <windows.h>
@@ -93,7 +93,7 @@ class K_MER_BIT_MAP{
         typedef pair<uint64_t,uint64_t> K_MER_128;
         static constexpr size_t NOT_FOUND = static_cast<size_t>(-1);
         struct pair_data{
-            paired_data(uint32_t i,uint16_t d):target_index(i),dist(d){}
+            pair_data(uint32_t i,uint16_t d):target_index(i),dist(d){}
             uint32_t target_index;
             uint16_t dist;
         };
@@ -128,7 +128,7 @@ class K_MER_BIT_MAP{
                     bool restart_needed = tune_settings();
                     if(restart_needed){
                         reset();
-                        process_reads(reads);
+                        process_reads(reads,dist,is_pair);
                         return;
                     }
                 }
@@ -255,7 +255,7 @@ class K_MER_BIT_MAP{
                 size_t h2 = hash<uint64_t>{}(k_mer.second);
                 return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
             }
-        }
+        };
 
 
 
@@ -289,15 +289,19 @@ class K_MER_BIT_MAP{
                 if(reads[i].size() < k_mer_len || reads[i + 1].size() < k_mer_len){
                     continue;
                 }
-                K_MER_128 k1 = encode_str_to_bit(STRING_REF(&read[i],0,k_mer_len));
-                K_MER_128 k2 = encode_str_to_bit(STRING_REF(&read[i+1],0,k_mer_len));
-                size_t k2_index = find(k2);
-                size_t k1_index = find(k1);
-                if(k2_index != NOT_FOUND && k1_index != NOT_FOUND){
-                    //the index at arr acts as the verex id, 
-                    //if the vertex is 5 then its at index 5 in the arr
-                    pair_map[k1_index].push_back({k2_index,distances[i/2]});
+                for(int start_pos = 0; start_pos<reads[i].size()-k_mer_len; start_pos+=10){
+                    K_MER_128 k1 = encode_str_to_bit(STRING_REF(&reads[i],start_pos,k_mer_len));
+                    K_MER_128 k2 = encode_str_to_bit(STRING_REF(&reads[i+1],start_pos,k_mer_len));
+                    size_t k2_index = find(k2);
+                    size_t k1_index = find(k1);
+                    if(k2_index != NOT_FOUND && k1_index != NOT_FOUND){
+                        //cout<<"pair: "<<k1_index<<"->"<<k2_index<<" dist: "<<distances[i/2]<<"\n";
+                        //the index at arr acts as the verex id, 
+                        //if the vertex is 5 then its at index 5 in the arr
+                        pair_map[k1_index].push_back({static_cast<uint32_t>(k2_index),distances[i/2]});
+                    }
                 }
+
             }
         }
 
@@ -430,7 +434,7 @@ class K_MER_BIT_MAP{
                 //ck is low but the best we can do so return false;
                 return false;
             }
-            //cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
+            cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
             return true;
         }
 
@@ -1299,10 +1303,10 @@ class GENOME_ASSEMBLER{
         
         void assemble_genome(){
             graph.update_edge_degree();
-            //ofstream file("genome_assembly/contig_output.txt");
-            print_contigs(cout);
+            ofstream file("genome_assembly/contig_output.txt");
+            print_contigs(file);
             //print_eulerian_path();
-            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
+            cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
             //graph.id_to_str.print_mem_size();
 
@@ -1353,7 +1357,7 @@ class GENOME_ASSEMBLER{
             else{
                 k_mer_size = 21;
             }
-            cout<<"KMER SIZE ESTIMATED TO FIT: "<<k_mer_size<<" GC_percent: "<<gc_percent<<"\n";
+            //cout<<"KMER SIZE ESTIMATED TO FIT: "<<k_mer_size<<" GC_percent: "<<gc_percent<<"\n";
         }
 
 
@@ -1390,33 +1394,64 @@ class GENOME_ASSEMBLER{
             return -1;
         }
 
+        struct candidate_data{
+            candidate_data(int i,int d):index(i),depth(d){}
+            int index;
+            int depth;
+        };
+        bool target_is_on_path(
+            int candidate_target,
+            int target_index,int remaining_dist
+        ){
+            const uint8_t MAX_VARIANCE = 25;
+            int min_dist = remaining_dist - MAX_VARIANCE;
+            int max_dist = remaining_dist + MAX_VARIANCE;
+            if(max_dist <1){return false;}
 
+            queue<candidate_data> candidates;
+            candidates.push({candidate_target,1});
+            while(!candidates.empty()){
+                candidate_data data = candidates.front(); candidates.pop();
+                if(data.depth >= min_dist && data.depth <= max_dist && data.index == target_index){
+                    return true;
+                }
+                if(data.depth < max_dist){
+                    for(int i = 0; i<graph[data.index].size(); i++){
+                        if(graph[data.index][i].visits_left > 0){
+                            candidates.push({graph[data.index][i].to, data.depth+1});
+                        }
+                    }
+                }
+            }
+            return false;
+        }
 
         int choose_path_from_junction(
             const vector<int>& contig_path,
             const K_MER_BIT_MAP&id_to_str
 
         ){
-            const uint8_t MAX_VARIANCE = 25;
+            
             int curr_vert = contig_path.back();
             int edges_count = graph[curr_vert].size();
             vector<uint16_t>scores(edges_count,0);
             int path_size = contig_path.size();
             int max_look_back = min(1000,path_size);
-            for(int steps_back = 1; steps_back<max_look_back; steps_back++){
+            for(int steps_back = 1; steps_back<=max_look_back; steps_back++){
                 int path_index = path_size - steps_back;
                 int path_node = contig_path[path_index];
                 auto it = id_to_str.pair_map.find(path_node);
                 if(it == id_to_str.pair_map.end()){
                     continue;
                 }
-                int dist = steps_back -1;
+                
                 for(const auto& data: it->second){
-                    if(abs(dist - data.dist) <= MAX_VARIANCE){
+                    int remaining_dist = data.dist - steps_back;
+                    if(remaining_dist >0){
                         for(int candidate = 0; candidate<edges_count; candidate++){
                             if(graph[curr_vert][candidate].visits_left>0){
                                 int candidate_target =  graph[curr_vert][candidate].to;
-                                if(candidate_target == data.target_index){
+                                if(target_is_on_path(candidate_target,data.target_index,remaining_dist)){
                                     scores[candidate]++;
                                 }
                             }
@@ -1439,6 +1474,8 @@ class GENOME_ASSEMBLER{
                     tie = true;
                 }
             }
+            cout << "CURRENT JUNCTION AT "<< curr_vert <<
+             " CHOSEN EDGE INDEX "<<best_edge << " WITH A SCORE OF "<<best_score<<"\n";
             if(!tie && best_score>=1){
                 return best_edge;
             }
@@ -1455,11 +1492,15 @@ class GENOME_ASSEMBLER{
             const K_MER_BIT_MAP&id_to_str = graph.id_to_str;
             size_t curr_contig = 1;
             while(true){
+                vector<int> contig_path;
                 int v = -1,u_index = -1;
                 find_start_edge(v,u_index);
                 if(v == -1){break;}
                 const int&u = graph[v][u_index].to;
                 graph[v][u_index].visits_left=0;
+                contig_path.push_back(v);
+
+                
                 /*
                 cout<<"starting edge: "<<v<<"->"<<u;
                 //*/
@@ -1469,12 +1510,28 @@ class GENOME_ASSEMBLER{
                 id_to_str.print_back_char_at(u,out);
                 contigs_total_length+=k_mer_size;
                 int curr = u;
-                while(
-                    graph.in_deg[curr] == 1 && graph.out_deg[curr] == 1 &&
-                    !graph[curr].empty() && graph[curr][0].visits_left>0
-                ){
-                    const int& next = graph[curr][0].to;
-                    graph[curr][0].visits_left=0;
+
+                while(!graph[curr].empty()){
+                    int next;
+                    int edge_indx = -1;
+
+                    contig_path.push_back(curr);
+
+                    if(graph.in_deg[curr] == 1 && graph.out_deg[curr] == 1){
+                        if(graph[curr][0].visits_left>0){
+                            edge_indx = 0;
+                        }
+                        else{break;}
+                    }
+                    else if(is_read_pair){
+                        //cout<<"getting edge...\n";
+                        edge_indx = choose_path_from_junction(contig_path,id_to_str);
+                        
+                    }
+                    if(edge_indx == -1){break;}
+
+                    next = graph[curr][edge_indx].to;
+                    graph[curr][edge_indx].visits_left=0;
                     /*
                     cout<<"->"<<next;
                     //*/

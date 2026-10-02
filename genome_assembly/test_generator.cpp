@@ -7,13 +7,17 @@
 
 using namespace std;
 
+const bool genarate_from_real_gene = false;
+
 const int gene_len = 500000;
-const int GC_percentage = 5;
+const int GC_percentage = 50;
 const int read_len = 100;
 const int coverage = 30;
 const string GC_bases = "CG";
 const string AT_bases = "AT";
 const string bases = "ACGT";
+
+const bool has_errors = true;
 
 const bool is_read_pair = true;
 const int pair_dist_max = 300;
@@ -43,6 +47,19 @@ void gen_rand_genome(string& gene){
     }
 }
 
+
+void read_real_gene(string&gene){
+    ifstream file("genome_assembly/real_gene.txt");
+    string read;
+    string name;
+    file>>name;
+    cout<<"GENE NAME: "<<name<<"\n";
+    while(file>>read){
+        gene+=read;
+    }
+}
+
+
 void diff_rand_base(char&base,mt19937& rng){
     string shuffled_bases = bases;
     shuffle(shuffled_bases.begin(),shuffled_bases.end(),rng);
@@ -54,7 +71,7 @@ void diff_rand_base(char&base,mt19937& rng){
     }
 }
 
-void break_gene_into_reads(string& gene,vector<string>&reads){
+void break_gene_into_reads(const string& gene,vector<string>&reads){
     mt19937 rng(100);
     int max_start = gene.size()-read_len;
     
@@ -80,18 +97,23 @@ void break_gene_into_reads(string& gene,vector<string>&reads){
 
         int start = dist(rng);
         string read = gene.substr(start,read_len);
-        //introduce a 1% error
         uniform_int_distribution<int>read_dist(0,read.size()-1);
-        int error_i = read_dist(rng);
-        diff_rand_base(read.at(error_i),rng);
+        if(has_errors){
+            //introduce a 1% error
+            int error_i = read_dist(rng);
+            diff_rand_base(read.at(error_i),rng);
+        }
         
 
         if(is_read_pair){
             int r2_start = start+read_len+actual_d;
             string read_2 = gene.substr(r2_start, read_len);
-            //introduce a 1% error
-            int error_i = read_dist(rng);
-            diff_rand_base(read_2.at(error_i),rng);
+            if(has_errors){
+                //introduce a 1% error
+                int error_i = read_dist(rng);
+                diff_rand_base(read_2.at(error_i),rng);
+            }
+
             read += '|' + read_2 + '|' + to_string(mean_d+read_len);
         }
         reads.push_back(read);
@@ -108,9 +130,24 @@ ostream& operator<<(ostream&out,my_bool is_true){
     return out << (is_true.is_true ? "True" : "False"); 
 }
 
-void write_rand_test_to_file(){
+float actual_gc(const string&gene){
+    double gc_count = 0;
+    for(const char& base:gene){
+        if(base == 'C' || base == 'G'){
+            gc_count+=1.0;
+        }
+    }
+    return (gc_count / gene.size()) * 100.0;
+}
+
+void write_test_to_file(){
     string gene = "";
-    gen_rand_genome(gene);
+    if(!genarate_from_real_gene){
+        gen_rand_genome(gene);
+    }
+    else{
+        read_real_gene(gene);
+    }
     ofstream gene_file("genome_assembly/reference_gene.txt");
     gene_file<<">REFERENCE GENOME\n"<<gene;
     vector<string>reads;
@@ -118,10 +155,10 @@ void write_rand_test_to_file(){
     ofstream file("genome_assembly/test_inputs.txt");
     if(!file){cout<<"could not open file\n";}
 
-    cout<<"Writing to file: genome_assembly/test_inputs.txt\ngenome size: "<<gene_len
+    cout<<"Writing to file: genome_assembly/test_inputs.txt\ngenome size: "<<gene.size()
     <<"\nread size: "<<read_len<<"\nread count: "<<reads.size()<<"\nerror percentage: 1%"
-    <<"\ncoverage: "<<coverage << "\nGC%: "<<GC_percentage <<"\npaired inputes: "
-    <<my_bool(is_read_pair);
+    <<"\ncoverage: "<<coverage <<"\npaired inputs: "<<my_bool(is_read_pair)<<"\nGC% "<< actual_gc(gene)
+    <<"\nhas errors: "<<my_bool(has_errors);
     
     file<<reads.size()<<"\n";
     
@@ -132,6 +169,6 @@ void write_rand_test_to_file(){
 }
 
 int main(){
-    write_rand_test_to_file();
+    write_test_to_file();
     return 0;
 }

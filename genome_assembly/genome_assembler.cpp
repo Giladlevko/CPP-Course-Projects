@@ -136,9 +136,10 @@ class K_MER_BIT_MAP{
                 arr.insert(arr.end(),chunk.begin(),chunk.end());
             }
             if(is_pair){
-                build_pair_link_map(reads,dist);
+                unordered_set<int> empty_set;
+                build_pair_link_map(reads,dist,empty_set,10,false);
                 //to save memory I can clear the dist
-                dist.clear(); dist.shrink_to_fit();
+                //dist.clear(); dist.shrink_to_fit();
             }
             
         }
@@ -258,6 +259,37 @@ class K_MER_BIT_MAP{
         };
 
 
+        void build_pair_link_map(
+            const vector<string>&reads,
+            const vector<uint16_t>&distances,
+            const unordered_set<int>&junction_nodes,
+            int offset = 1, bool check_set = true
+        ){
+            for(int i = 0; i+1<reads.size(); i+=2){
+                if(reads[i].size() < k_mer_len || reads[i + 1].size() < k_mer_len){
+                    continue;
+                }
+                int size = min(reads[i].size(),reads[i+1].size());
+                for(int start_pos = 0; start_pos<= size-k_mer_len; start_pos+=offset){
+                    K_MER_128 k1 = encode_str_to_bit(STRING_REF(&reads[i],start_pos,k_mer_len));
+                    size_t k1_index = find(k1);
+                    if(check_set && !junction_nodes.count(k1_index)){continue;}
+                    K_MER_128 k2 = encode_str_to_bit(STRING_REF(&reads[i+1],start_pos,k_mer_len));
+                    size_t k2_index = find(k2);
+                    
+                    if(k2_index != NOT_FOUND && k1_index != NOT_FOUND){
+                        //cout<<"pair: "<<k1_index<<"->"<<k2_index<<" dist: "<<distances[i/2]<<"\n";
+                        //the index at arr acts as the verex id, 
+                        //if the vertex is 5 then its at index 5 in the arr
+                        pair_map[k1_index].push_back({static_cast<uint32_t>(k2_index),distances[i/2]});
+                    }
+                }
+            }
+            cout<<"Pait map size: "<<pair_map.size()<<" junctions count: "<< junction_nodes.size()<<"\n";
+        }
+
+
+
 
     private:
         uint16_t k_mer_len;
@@ -284,26 +316,7 @@ class K_MER_BIT_MAP{
 
 
 
-        void build_pair_link_map(const vector<string>&reads, const vector<uint16_t>&distances){
-            for(int i = 0; i+1<reads.size(); i+=2){
-                if(reads[i].size() < k_mer_len || reads[i + 1].size() < k_mer_len){
-                    continue;
-                }
-                for(int start_pos = 0; start_pos<reads[i].size()-k_mer_len; start_pos+=10){
-                    K_MER_128 k1 = encode_str_to_bit(STRING_REF(&reads[i],start_pos,k_mer_len));
-                    K_MER_128 k2 = encode_str_to_bit(STRING_REF(&reads[i+1],start_pos,k_mer_len));
-                    size_t k2_index = find(k2);
-                    size_t k1_index = find(k1);
-                    if(k2_index != NOT_FOUND && k1_index != NOT_FOUND){
-                        //cout<<"pair: "<<k1_index<<"->"<<k2_index<<" dist: "<<distances[i/2]<<"\n";
-                        //the index at arr acts as the verex id, 
-                        //if the vertex is 5 then its at index 5 in the arr
-                        pair_map[k1_index].push_back({static_cast<uint32_t>(k2_index),distances[i/2]});
-                    }
-                }
 
-            }
-        }
 
         
 
@@ -415,10 +428,17 @@ class K_MER_BIT_MAP{
 
         bool tune_settings(){
             double CK = coverage_of_k();
+            //double target_ck = max(6.0, ( (12.0*k_mer_len) / big_k_mer ) );
             double target_ck = k_mer_len > 30 ? 12.0 : 6.0;
             if( CK >= target_ck){
-                //already good coverage no need to change anything
-                return false;
+                if(k_mer_len % 2 == 1){
+                    k_mer_len -= 1;
+                }
+                else{
+                    //already good coverage no need to change anything
+                    return false;
+                }
+                
             }
             else if(k_mer_len > low_k_mer){
                 min_freq = 2;
@@ -434,6 +454,7 @@ class K_MER_BIT_MAP{
                 //ck is low but the best we can do so return false;
                 return false;
             }
+            //if(k_mer_len%2 == 1){k_mer_len -= 1;}
             cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
             return true;
         }
@@ -719,6 +740,17 @@ class DE_BRUIJN_GRAPH{
             }
             //cout<<"Total in all rounds: "<<total<<"\n";
             
+        }
+
+
+        void build_pair_link_map(const vector<string>&reads,const vector<uint16_t>&dist){
+            unordered_set<int> junction_nodes;
+            for(int v = 0; v<graph.size(); v++){
+                if(graph[v].size()>=2){
+                    junction_nodes.insert(v);
+                }
+            }
+            id_to_str.build_pair_link_map(reads,dist,junction_nodes);
         }
     
         
@@ -1285,8 +1317,7 @@ class GENOME_ASSEMBLER{
         {
             //estimate_k_size();
             graph = DE_BRUIJN_GRAPH(reads,k_mer_size,distances,is_read_pair);
-            //can remove the reads as I don't need them anymore
-            reads.clear(); reads.shrink_to_fit();
+            
             /*
             cout<<"original graph:\n";
             graph.print_graph();
@@ -1295,6 +1326,12 @@ class GENOME_ASSEMBLER{
             //<<"\nVert count: "<<graph.size()<<"\n";
             graph.remove_tips_and_bubbles(graph.true_k_len);
 
+            if(is_pair){
+                graph.build_pair_link_map(reads,dist);
+            }
+            //can remove the reads as I don't need them anymore
+            reads.clear(); reads.shrink_to_fit();
+            dist.clear(); dist.shrink_to_fit();
             /*
             cout<<"\nclean graph:\n";
             graph.print_graph();
@@ -1306,7 +1343,7 @@ class GENOME_ASSEMBLER{
             ofstream file("genome_assembly/contig_output.txt");
             print_contigs(file);
             //print_eulerian_path();
-            cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
+            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
             //graph.id_to_str.print_mem_size();
 
@@ -1474,9 +1511,12 @@ class GENOME_ASSEMBLER{
                     tie = true;
                 }
             }
+            //*
             cout << "CURRENT JUNCTION AT "<< curr_vert <<
-             " CHOSEN EDGE INDEX "<<best_edge << " WITH A SCORE OF "<<best_score<<"\n";
-            if(!tie && best_score>=1){
+             " | CHOSEN EDGE INDEX "<<best_edge << " | WITH A SCORE OF "
+             <<best_score<<" | tie is "<<tie <<"\n";
+             //*/
+            if(!tie && best_score>=3){
                 return best_edge;
             }
             return -1;
@@ -1487,6 +1527,8 @@ class GENOME_ASSEMBLER{
         
         void print_contigs(ostream&out){
             size_t contigs_total_length = 0;
+            int all_junctions = 0;
+            int solved_junctions = 0;
             //linear contigs starting from a start node that 
             //has out > 0 and !(in == 1 && out == 1)
             const K_MER_BIT_MAP&id_to_str = graph.id_to_str;
@@ -1526,7 +1568,8 @@ class GENOME_ASSEMBLER{
                     else if(is_read_pair){
                         //cout<<"getting edge...\n";
                         edge_indx = choose_path_from_junction(contig_path,id_to_str);
-                        
+                        if(edge_indx != -1){solved_junctions++;}
+                        all_junctions++;
                     }
                     if(edge_indx == -1){break;}
 
@@ -1574,7 +1617,7 @@ class GENOME_ASSEMBLER{
                     out<<"\n";
                 }
             }
-
+            cout<<"ALL JUNCTIONS: "<<all_junctions<<" | SOLVED JUNCTIONS: "<<solved_junctions<<"\n";
             //cout<<"THE TOTAL LENGTH OF ALL CONTIGS IS: "<<contigs_total_length<<"\n";
         }
 

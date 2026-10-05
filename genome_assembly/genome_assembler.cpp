@@ -461,39 +461,33 @@ class K_MER_BIT_MAP{
 
 
         void estimate_min_freq(const vector<K_MER_128>&a){
-            if(k_mer_len >21){min_freq = 1;}
-            else{
-                size_t size = a.size();
-                
-                size_t singles = 0;
-                size_t all = 0;
-                for(size_t i = 0; i<size; ){
-                    size_t j = i+1;
-                    while(j<size && a[i] ==  a[j]){
-                        j++;
-                    }
-                    if( (j-i) == 1 ){
-                        singles++;
-                    }
-                    all++;
-                    i = j;
+            size_t size = a.size();
+            size_t total_freq = 0;
+            size_t unique_k_mer_count = 0;
+            for(size_t i = 0; i<size; ){
+                size_t j = i+1;
+                while(j<size && a[i] ==  a[j]){
+                    j++;
                 }
-                double ratio = static_cast<double>(singles)/all;
-                if(ratio < 0.35){
-                    min_freq = 1;
+                int freq = j-i;
+                if(freq >= 2){
+                    total_freq += j-i;
+                    unique_k_mer_count++;
                 }
-                else{
-                    min_freq = 2;
-                }
+                i = j;
             }
+            double average = static_cast<double>(total_freq)/unique_k_mer_count;
+            cout<<"average = "<<average<<endl;
+            min_freq = max(2.0,average/5.0);
             cout<<"MIN_FREQ ESTIMATED TO BE: "<<min_freq<<"\n";
         }
+        
+        
 
 
         void clean_bit_arr(vector<K_MER_128>&a){
-            if(min_freq == -1){
-                estimate_min_freq(a);
-            }
+            //estimate_min_freq(a);
+            
             size_t write_index = 0;
             size_t size = a.size();
             for(size_t i = 0; i<size; ){
@@ -709,6 +703,13 @@ class DE_BRUIJN_GRAPH{
             in_deg[u]--;
             out_deg[v]--;
         }
+
+        void remove_edge_by_index(int v, int i){
+            int u = graph[v][i].to;
+            graph[v].erase(i);
+            in_deg[u]--;
+            out_deg[v]--;
+        }
         
         size_t size()const{
             return graph.size();
@@ -740,6 +741,22 @@ class DE_BRUIJN_GRAPH{
             }
             //cout<<"Total in all rounds: "<<total<<"\n";
             
+        }
+
+
+        void remove_relative_low_weight_edges(){
+            //remove an edge if its weight extreamly low than the rest of the edges
+            for(int v = 0; v<graph.size(); v++){
+                int max_weight = 0;
+                for(int i = 0; i<graph[v].size(); i++){
+                    max_weight =(max_weight < graph[v][i].weight ? graph[v][i].weight : max_weight);
+                }
+                for(int i = graph[v].size()-1; i>=0; i--){
+                    if(graph[v][i].weight < 0.2 * max_weight){
+                        remove_edge_by_index(v,i);
+                    }
+                }
+            }  
         }
 
 
@@ -1322,9 +1339,10 @@ class GENOME_ASSEMBLER{
             cout<<"original graph:\n";
             graph.print_graph();
             //*/
-            //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
-            //<<"\nVert count: "<<graph.size()<<"\n";
+            cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
+            <<"\nVert count: "<<graph.size()<<"\n";
             graph.remove_tips_and_bubbles(graph.true_k_len);
+            graph.remove_relative_low_weight_edges();
 
             if(is_pair){
                 graph.build_pair_link_map(reads,dist);
@@ -1343,7 +1361,7 @@ class GENOME_ASSEMBLER{
             ofstream file("genome_assembly/contig_output.txt");
             print_contigs(file);
             //print_eulerian_path();
-            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
+            cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
             //graph.id_to_str.print_mem_size();
 
@@ -1500,6 +1518,7 @@ class GENOME_ASSEMBLER{
 
             int best_edge = -1;
             int best_score = 0;
+            int second_best = 0;
             bool tie = false;
             for(int i = 0; i<edges_count; i++){
                 if(scores[i] > best_score){
@@ -1509,8 +1528,13 @@ class GENOME_ASSEMBLER{
                 }
                 else if(scores[i] == best_score && best_score>0){
                     tie = true;
+                    
                 }
+                else if(second_best<scores[i]){
+                        second_best = scores[i];
+                    }
             }
+            if(best_score <= 2 * second_best){tie = true;}
             //*
             cout << "CURRENT JUNCTION AT "<< curr_vert <<
              " | CHOSEN EDGE INDEX "<<best_edge << " | WITH A SCORE OF "

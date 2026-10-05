@@ -19,7 +19,7 @@ const string bases = "ACGT";
 
 const bool has_errors = true;
 
-const bool is_read_pair = true;
+const bool is_read_pair = false;
 const int pair_dist_max = 300;
 const int pair_dist_min = 100;
 const int dist_variance = 20;

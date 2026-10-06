@@ -99,48 +99,13 @@ class K_MER_BIT_MAP{
         };
         unordered_map<int,vector<pair_data>> pair_map;
 
-        void process_reads(const vector<string>&reads,vector<uint16_t>&dist,bool is_pair){
-            uint64_t high_len = k_mer_len/2;
-            uint64_t prefix_shift = (2 * high_len) - 4;
-            for(uint64_t prefix = 0; prefix<16; prefix++){
-                vector<K_MER_128> chunk;
-                chunk.reserve(7000000);
-                for(const string& e:reads){
-                    if(e.size()<k_mer_len){
-                        continue;
-                    }
-                    K_MER_128 current_k_mer = encode_str_to_bit(STRING_REF(&e,0,k_mer_len));
-                    if((current_k_mer.first>>prefix_shift) == prefix){
-                        chunk.push_back(current_k_mer);
-                    }
-                    for(size_t i = k_mer_len; i<e.size(); i++){
-                        current_k_mer = append_char_to_k_mer(current_k_mer,e[i]);
-                        if((current_k_mer.first>>prefix_shift) == prefix){
-                            chunk.push_back(current_k_mer);
-                        }
-                    }
-                }
-                
-                sort_k_mer(chunk);
-                clean_bit_arr(chunk);
+        void process_reads(vector<string>&reads,vector<uint16_t>&dist,bool is_pair){
 
-                if(prefix == 0){
-                    bool restart_needed = tune_settings();
-                    if(restart_needed){
-                        reset();
-                        process_reads(reads,dist,is_pair);
-                        return;
-                    }
-                }
-
-                arr.insert(arr.end(),chunk.begin(),chunk.end());
-            }
-            if(is_pair){
-                unordered_set<int> empty_set;
-                build_pair_link_map(reads,dist,empty_set,10,false);
-                //to save memory I can clear the dist
-                //dist.clear(); dist.shrink_to_fit();
-            }
+            clean_reads(reads,dist,is_pair);
+            
+            reset();
+            k_mer_len = big_k_mer;
+            create_bit_arr(reads,dist,is_pair,false);
             
         }
 
@@ -285,7 +250,7 @@ class K_MER_BIT_MAP{
                     }
                 }
             }
-            cout<<"Pait map size: "<<pair_map.size()<<" junctions count: "<< junction_nodes.size()<<"\n";
+            //cout<<"Pair map size: "<<pair_map.size()<<" junctions count: "<< junction_nodes.size()<<"\n";
         }
 
 
@@ -308,14 +273,131 @@ class K_MER_BIT_MAP{
 
 
         void reset(){
-            arr.clear();
-            count_arr.clear();
+            arr.clear(); arr.shrink_to_fit();
+            count_arr.clear(); count_arr.shrink_to_fit();
             gene_vol = 0;
             unique_gene = 0;
         }
 
 
+        size_t clean_reads(
+            vector<string>&reads,
+            vector<uint16_t>&dist,
+            bool is_pair
+        ){
+            size_t reads_cleaned = 0;
+            bool cleaning_reads = true;
+            k_mer_len = low_k_mer;
+            create_bit_arr(reads,dist,is_pair,cleaning_reads);
+            for(string&e:reads){
+                K_MER_128 current_k_mer = encode_str_to_bit(STRING_REF(&e,0,k_mer_len));
+                bool first_is_error = (find(current_k_mer) == NOT_FOUND);
+                for(int i = k_mer_len; i<=e.size()-k_mer_len; i++){
+                    current_k_mer = append_char_to_k_mer(current_k_mer,e[i]);
+                    bool is_last_char = true;
+                    if(!first_is_error){
+                        if(find(current_k_mer) == NOT_FOUND){
+                            char base = find_best_char_for_erroneous_kmer(current_k_mer,is_last_char);
+                            if(base != '\0'){
+                                e[i] = base;
+                                reads_cleaned++;
+                                break;
+                            }
+                            
+                        }
+                    }
+                    else{
+                        if(find(current_k_mer) != NOT_FOUND){
+                            is_last_char = false;
+                            //add a push to front of kmer function for better speed
+                            current_k_mer = push_char_to_front_k_mer(current_k_mer,e[i-k_mer_len]);
+                            char base = find_best_char_for_erroneous_kmer(current_k_mer,is_last_char);
+                            if(base != '\0'){
+                                e[i-k_mer_len] = base;
+                                reads_cleaned++;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            cout<<"READS CLEANED = "<<reads_cleaned<<endl;
+            return reads_cleaned;
+        }
 
+        char find_best_char_for_erroneous_kmer(K_MER_128& k_mer,bool is_last_char){
+            uint16_t best_count = 0;
+            uint64_t high_len = k_mer_len/2;
+            uint64_t low_len = k_mer_len - high_len;
+            char best_char = '\0';
+            for(uint64_t bit_base = 0; bit_base<4; bit_base++){
+                if(is_last_char){
+                    k_mer.second = (k_mer.second & ~3ULL) | bit_base;
+                }
+                else{
+                    uint64_t shift = (high_len - 1)*2;
+                    k_mer.first = (k_mer.first & ~(3ULL<<shift)) | (bit_base<<shift);
+                }
+
+                size_t index = find(k_mer);
+                if(index != NOT_FOUND){
+                    uint16_t count = count_at(index);
+                    if(best_count < count){
+                        best_count = count;
+                        best_char = bases[bit_base];
+                    }
+                }
+            }
+            return best_char;
+        }
+
+        void create_bit_arr(
+            vector<string>&reads,
+            vector<uint16_t>&dist,
+            bool is_pair,bool cleaning_reads
+        ){
+            uint64_t high_len = k_mer_len/2;
+            uint64_t prefix_shift = (2 * high_len) - 4;
+            for(uint64_t prefix = 0; prefix<16; prefix++){
+                vector<K_MER_128> chunk;
+                chunk.reserve(7000000);
+                for(const string& e:reads){
+                    if(e.size()<k_mer_len){
+                        continue;
+                    }
+                    K_MER_128 current_k_mer = encode_str_to_bit(STRING_REF(&e,0,k_mer_len));
+                    if((current_k_mer.first>>prefix_shift) == prefix){
+                        chunk.push_back(current_k_mer);
+                    }
+                    for(size_t i = k_mer_len; i<e.size(); i++){
+                        current_k_mer = append_char_to_k_mer(current_k_mer,e[i]);
+                        if((current_k_mer.first>>prefix_shift) == prefix){
+                            chunk.push_back(current_k_mer);
+                        }
+                    }
+                }
+                
+                sort_k_mer(chunk);
+                clean_bit_arr(chunk);
+
+                if(prefix == 0 && !cleaning_reads){
+                    bool restart_needed = tune_settings();
+                    if(restart_needed){
+                        reset();
+                        create_bit_arr(reads,dist,is_pair,false);
+                        return;
+                    }
+                }
+
+                arr.insert(arr.end(),chunk.begin(),chunk.end());
+            }
+            if(is_pair && !cleaning_reads){
+                unordered_set<int> empty_set;
+                build_pair_link_map(reads,dist,empty_set,20,false);
+                //to save memory I can clear the dist
+                //dist.clear(); dist.shrink_to_fit();
+            }
+        }
 
 
         
@@ -390,6 +472,22 @@ class K_MER_BIT_MAP{
             return bases[base_index];
         }
 
+        K_MER_128 push_char_to_front_k_mer(K_MER_128 k_mer,const char& c){
+            uint16_t high_len = k_mer_len / 2;
+            uint16_t low_len = k_mer_len - high_len;
+
+            uint64_t base = get_bit_id(c);
+
+            //because I will push to the front I need to get
+            //the last char in the high to move it to the front of low
+            uint64_t shifted_from_high = k_mer.first & 3ULL;
+            //pushes the char to the front of high while removing the last 2 bits
+            k_mer.first = (base<<((high_len-1 )*2)) | (k_mer.first >> 2);
+            //adding the last two bits of high to front of low
+            k_mer.second = (shifted_from_high<<((low_len-1)*2)) | (k_mer.second >> 2);
+            return k_mer;
+        }
+
         K_MER_128 append_char_to_k_mer(K_MER_128 k_mer,const char& c){
             uint16_t high_len = k_mer_len / 2;
             uint16_t low_len = k_mer_len - high_len;
@@ -402,7 +500,7 @@ class K_MER_BIT_MAP{
 
             //gets the first two bits that now because
             //of appending to low need to be moved to back of high
-            uint64_t shifted_from_low = (k_mer.second >> (2*(low_len-1))) & 3;
+            uint64_t shifted_from_low = (k_mer.second >> (2*(low_len-1))) & 3ULL;
             //appends the new base to the left of low and removes the 2 extra at the right
             k_mer.second = ((k_mer.second << 2) | base) & low_mask;
             //appends the 2 extra from low to the left of high and removes the two exta at the right
@@ -653,7 +751,7 @@ void print_unordered_map_mem_size(const unordered_map<K,V,H>&map){
 class DE_BRUIJN_GRAPH{
     public:
 
-        DE_BRUIJN_GRAPH(const vector<string>& entries,const int& k,vector<uint16_t>&dist,bool is_pair){
+        DE_BRUIJN_GRAPH(vector<string>& entries,const int& k,vector<uint16_t>&dist,bool is_pair){
             create_k_mer_graph(entries,k,dist,is_pair);
             
         }
@@ -818,7 +916,7 @@ class DE_BRUIJN_GRAPH{
         }
     
         void create_k_mer_graph(
-            const vector<string>& entries,const int& k,
+            vector<string>& entries,const int& k,
             vector<uint16_t>&dist,bool is_pair
         ){
             int count = entries.size();
@@ -854,13 +952,13 @@ class DE_BRUIJN_GRAPH{
             */
 
             for(const string& e:entries){
-                if(e.size()<k){continue;}
+                if(e.size()<true_k_len){continue;}
                 //sliding a window through the entry to get all k-mers
-                for(int i = 0; i<=e.size()-k; i++){
+                for(int i = 0; i<=e.size()-true_k_len; i++){
 
                     //vert size is k-1 so the edge is k long
-                    STRING_REF pre(&e,i,k-1);
-                    STRING_REF suff(&e,i+1,k-1);
+                    STRING_REF pre(&e,i,true_k_len-1);
+                    STRING_REF suff(&e,i+1,true_k_len-1);
 
                     //filtering rare k-mers to avoid making the graph huge
                     //size_t pre_i = node_map_data.find(pre);
@@ -1339,8 +1437,8 @@ class GENOME_ASSEMBLER{
             cout<<"original graph:\n";
             graph.print_graph();
             //*/
-            cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
-            <<"\nVert count: "<<graph.size()<<"\n";
+            //cout<<"Before tip and bubble removal:\nEdge count: "<<graph.get_total_edges()
+            //<<"\nVert count: "<<graph.size()<<"\n";
             graph.remove_tips_and_bubbles(graph.true_k_len);
             graph.remove_relative_low_weight_edges();
 
@@ -1361,7 +1459,7 @@ class GENOME_ASSEMBLER{
             ofstream file("genome_assembly/contig_output.txt");
             print_contigs(file);
             //print_eulerian_path();
-            cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
+            //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
             //graph.print_graph_mem_size();
             //graph.id_to_str.print_mem_size();
 
@@ -1540,7 +1638,7 @@ class GENOME_ASSEMBLER{
              " | CHOSEN EDGE INDEX "<<best_edge << " | WITH A SCORE OF "
              <<best_score<<" | tie is "<<tie <<"\n";
              //*/
-            if(!tie && best_score>=3){
+            if(!tie && best_score>=15){
                 return best_edge;
             }
             return -1;

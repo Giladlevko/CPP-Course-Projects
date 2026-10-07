@@ -321,7 +321,7 @@ class K_MER_BIT_MAP{
                     }
                 }
             }
-            cout<<"READS CLEANED = "<<reads_cleaned<<endl;
+            //cout<<"READS CLEANED = "<<reads_cleaned<<endl;
             return reads_cleaned;
         }
 
@@ -553,7 +553,7 @@ class K_MER_BIT_MAP{
                 return false;
             }
             //if(k_mer_len%2 == 1){k_mer_len -= 1;}
-            cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
+            //cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
             return true;
         }
 
@@ -575,9 +575,9 @@ class K_MER_BIT_MAP{
                 i = j;
             }
             double average = static_cast<double>(total_freq)/unique_k_mer_count;
-            cout<<"average = "<<average<<endl;
+            //cout<<"average = "<<average<<endl;
             min_freq = max(2.0,average/5.0);
-            cout<<"MIN_FREQ ESTIMATED TO BE: "<<min_freq<<"\n";
+            //cout<<"MIN_FREQ ESTIMATED TO BE: "<<min_freq<<"\n";
         }
         
         
@@ -1589,7 +1589,7 @@ class GENOME_ASSEMBLER{
             int edges_count = graph[curr_vert].size();
             vector<uint16_t>scores(edges_count,0);
             int path_size = contig_path.size();
-            int max_look_back = min(1000,path_size);
+            int max_look_back = min(500,path_size);
             for(int steps_back = 1; steps_back<=max_look_back; steps_back++){
                 int path_index = path_size - steps_back;
                 int path_node = contig_path[path_index];
@@ -1633,12 +1633,12 @@ class GENOME_ASSEMBLER{
                     }
             }
             if(best_score <= 2 * second_best){tie = true;}
-            //*
+            /*
             cout << "CURRENT JUNCTION AT "<< curr_vert <<
              " | CHOSEN EDGE INDEX "<<best_edge << " | WITH A SCORE OF "
              <<best_score<<" | tie is "<<tie <<"\n";
              //*/
-            if(!tie && best_score>=15){
+            if(!tie && best_score>=5){
                 return best_edge;
             }
             return -1;
@@ -1739,7 +1739,7 @@ class GENOME_ASSEMBLER{
                     out<<"\n";
                 }
             }
-            cout<<"ALL JUNCTIONS: "<<all_junctions<<" | SOLVED JUNCTIONS: "<<solved_junctions<<"\n";
+            //cout<<"ALL JUNCTIONS: "<<all_junctions<<" | SOLVED JUNCTIONS: "<<solved_junctions<<"\n";
             //cout<<"THE TOTAL LENGTH OF ALL CONTIGS IS: "<<contigs_total_length<<"\n";
         }
 

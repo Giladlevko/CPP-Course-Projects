@@ -100,9 +100,8 @@ class K_MER_BIT_MAP{
         unordered_map<int,vector<pair_data>> pair_map;
 
         void process_reads(vector<string>&reads,vector<uint16_t>&dist,bool is_pair){
-
+            k_mer_len = low_k_mer;
             clean_reads(reads,dist,is_pair);
-            
             reset();
             k_mer_len = big_k_mer;
             create_bit_arr(reads,dist,is_pair,false);
@@ -287,7 +286,7 @@ class K_MER_BIT_MAP{
         ){
             size_t reads_cleaned = 0;
             bool cleaning_reads = true;
-            k_mer_len = low_k_mer;
+            
             create_bit_arr(reads,dist,is_pair,cleaning_reads);
             for(string&e:reads){
                 K_MER_128 current_k_mer = encode_str_to_bit(STRING_REF(&e,0,k_mer_len));
@@ -321,7 +320,7 @@ class K_MER_BIT_MAP{
                     }
                 }
             }
-            //cout<<"READS CLEANED = "<<reads_cleaned<<endl;
+            cout<<"READS CLEANED = "<<reads_cleaned<<endl;
             return reads_cleaned;
         }
 
@@ -393,7 +392,7 @@ class K_MER_BIT_MAP{
             }
             if(is_pair && !cleaning_reads){
                 unordered_set<int> empty_set;
-                build_pair_link_map(reads,dist,empty_set,20,false);
+                build_pair_link_map(reads,dist,empty_set,10,false);
                 //to save memory I can clear the dist
                 //dist.clear(); dist.shrink_to_fit();
             }
@@ -553,7 +552,7 @@ class K_MER_BIT_MAP{
                 return false;
             }
             //if(k_mer_len%2 == 1){k_mer_len -= 1;}
-            //cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
+            cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
             return true;
         }
 
@@ -1562,6 +1561,7 @@ class GENOME_ASSEMBLER{
             if(max_dist <1){return false;}
 
             queue<candidate_data> candidates;
+            unordered_map<int,int>visited_depth;
             candidates.push({candidate_target,1});
             while(!candidates.empty()){
                 candidate_data data = candidates.front(); candidates.pop();
@@ -1571,7 +1571,14 @@ class GENOME_ASSEMBLER{
                 if(data.depth < max_dist){
                     for(int i = 0; i<graph[data.index].size(); i++){
                         if(graph[data.index][i].visits_left > 0){
-                            candidates.push({graph[data.index][i].to, data.depth+1});
+                            int next_vert = graph[data.index][i].to;
+                            int next_depth = data.depth+1;
+                            
+                            auto it = visited_depth.find(next_vert);
+                            if(it == visited_depth.end() || it->second>next_depth){
+                                visited_depth[next_vert] = next_depth;
+                                candidates.push({next_vert, next_depth});
+                            }
                         }
                     }
                 }
@@ -1589,7 +1596,7 @@ class GENOME_ASSEMBLER{
             int edges_count = graph[curr_vert].size();
             vector<uint16_t>scores(edges_count,0);
             int path_size = contig_path.size();
-            int max_look_back = min(500,path_size);
+            int max_look_back = min(1000,path_size);
             for(int steps_back = 1; steps_back<=max_look_back; steps_back++){
                 int path_index = path_size - steps_back;
                 int path_node = contig_path[path_index];
@@ -1615,32 +1622,67 @@ class GENOME_ASSEMBLER{
             }
 
             int best_edge = -1;
+            int second_edge = -1;
             int best_score = 0;
             int second_best = 0;
             bool tie = false;
             for(int i = 0; i<edges_count; i++){
                 if(scores[i] > best_score){
+                    second_edge = best_edge;
+                    second_best = best_score;
                     best_edge = i;
                     best_score = scores[i];
                     tie = false;
                 }
                 else if(scores[i] == best_score && best_score>0){
                     tie = true;
+                    second_best = best_score;
+                    second_edge = i;
                     
                 }
                 else if(second_best<scores[i]){
                         second_best = scores[i];
+                        second_edge = i;
                     }
             }
-            if(best_score <= 2 * second_best){tie = true;}
+            double ratio = second_best/static_cast<double>(best_score);
+            int delta =  best_score - second_best;
+            bool passes = false;
+            if(ratio < 0.9){passes = true;}
+            else if(ratio <0.97){
+                passes = true;
+                if(contig_path.size()>2){
+                    int prev_vert = contig_path[contig_path.size()-2];
+                    int index = graph.find_edge(prev_vert,curr_vert);
+                    int weight = graph[prev_vert][index].weight;
+                    int diff_1 = abs(weight - graph[curr_vert][best_edge].weight);
+                    int diff_2 = abs(weight - graph[curr_vert][second_edge].weight);
+                    if(diff_2 < diff_1*0.9){
+                        best_edge = second_edge;
+                        best_score = second_best;
+                        cout<<"CHOSEN THE SECOND FOR BETTER WEIGHT MATCH!\n";
+                    }
+                    else if(diff_1*0.9>diff_2){cout<<"DIDNT CHOOSE THE SECOND!\n";}
+                    else{cout<<"TIE!\n";passes = false;}
+                }
+            }
+            else{
+                passes = false;
+            }
+            if(second_best > 2 && !passes){
+
+                tie = true;
+            }
             /*
             cout << "CURRENT JUNCTION AT "<< curr_vert <<
              " | CHOSEN EDGE INDEX "<<best_edge << " | WITH A SCORE OF "
              <<best_score<<" | tie is "<<tie <<"\n";
              //*/
-            if(!tie && best_score>=5){
+            if(!tie && best_score>=3){
                 return best_edge;
             }
+            if(best_score>0){cout<<"Best: "<<best_score<<" second: "<<second_best<<"\n";}
+            
             return -1;
         }
 

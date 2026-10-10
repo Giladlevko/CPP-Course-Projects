@@ -1491,6 +1491,67 @@ class GENOME_ASSEMBLER{
         vector<string>&reads;
 
 
+        struct CONTIG{
+            vector<int>nodes;
+        };
+        vector<CONTIG>contigs;
+        struct NODE_CONTIG_DATA{
+            NODE_CONTIG_DATA(int i,int d):contig_index(i),depth(d){}
+            int contig_index;
+            int depth;
+        };
+        vector<NODE_CONTIG_DATA>node_to_contig;
+        vector<vector<int>>contig_link_matrix;
+
+        void assign_node_to_contig_index(){
+            node_to_contig.assign(graph.size(),{-1,0});
+            for(int i = 0; i<contigs.size(); i++){
+                for(int j = 0; j<contigs[i].nodes.size; j++){
+                    int v = contigs[i].nodes[j];
+                    if(node_to_contig[v].contig_index == -1){
+                        node_to_contig[v].contig_index = i;
+                        node_to_contig[v].depth = j;
+                    }
+                    else if(node_to_contig[v]>=0 && node_to_contig[v] != i){
+                        node_to_contig[v] = -2;
+                    }
+                }
+            }
+        }
+
+        void build_contig_link_matrix(){
+            const int MAX_VARIANCE = 50;
+            for(auto it:graph.id_to_str.pair_map){
+
+                if(contig_a_indx>=0){
+                    int contig_a_indx = node_to_contig[it->first].contig_index;
+
+                    int contig_a_size = contigs[contig_a_indx].size();
+                    int a_node_depth = node_to_contig[it->first].depth;
+
+                    int a_dist_from_end =  contig_a_size - a_node_depth; 
+
+                    for(const auto& data:it->second){
+
+                        int contig_b_indx = node_to_contig[data.target_index].contig_index;
+
+                        if(contig_b_indx >= 0){
+                            b_node_depth = node_to_contig[data.target_index].depth;
+                            int estimated_dist = data.dist;
+                            int actual_dist = (a_dist_from_end + b_node_depth) * graph.true_k_len;
+
+                            if(abs(actual_dist - estimated_dist) < MAX_VARIANCE){
+                                //TO DO: add an expected distance between the contigs
+                                //to the matrix so ill have a count for the votes and a dist 
+                                contig_link_matrix[contig_a_indx][contig_b_indx]++;
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
+
         void estimate_k_size(){
             size_t gc_count = 0;
             size_t all_bases = 0;
@@ -1573,12 +1634,12 @@ class GENOME_ASSEMBLER{
                         if(graph[data.index][i].visits_left > 0){
                             int next_vert = graph[data.index][i].to;
                             int next_depth = data.depth+1;
-                            
-                            auto it = visited_depth.find(next_vert);
+                            candidates.push({next_vert, next_depth});
+                            /*auto it = visited_depth.find(next_vert);
                             if(it == visited_depth.end() || it->second>next_depth){
                                 visited_depth[next_vert] = next_depth;
-                                candidates.push({next_vert, next_depth});
-                            }
+                                
+                            }*/
                         }
                     }
                 }
@@ -1596,7 +1657,7 @@ class GENOME_ASSEMBLER{
             int edges_count = graph[curr_vert].size();
             vector<uint16_t>scores(edges_count,0);
             int path_size = contig_path.size();
-            int max_look_back = min(1000,path_size);
+            int max_look_back = min(10000,path_size);
             for(int steps_back = 1; steps_back<=max_look_back; steps_back++){
                 int path_index = path_size - steps_back;
                 int path_node = contig_path[path_index];
@@ -1657,12 +1718,12 @@ class GENOME_ASSEMBLER{
                     int weight = graph[prev_vert][index].weight;
                     int diff_1 = abs(weight - graph[curr_vert][best_edge].weight);
                     int diff_2 = abs(weight - graph[curr_vert][second_edge].weight);
-                    if(diff_2 < diff_1*0.9){
+                    if(diff_2 < diff_1){
                         best_edge = second_edge;
                         best_score = second_best;
                         cout<<"CHOSEN THE SECOND FOR BETTER WEIGHT MATCH!\n";
                     }
-                    else if(diff_1*0.9>diff_2){cout<<"DIDNT CHOOSE THE SECOND!\n";}
+                    else if(diff_1>diff_2){cout<<"DIDNT CHOOSE THE SECOND!\n";}
                     else{cout<<"TIE!\n";passes = false;}
                 }
             }

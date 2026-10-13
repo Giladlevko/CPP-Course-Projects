@@ -1456,6 +1456,7 @@ class GENOME_ASSEMBLER{
         void assemble_genome(){
             graph.update_edge_degree();
             ofstream file("genome_assembly/contig_output.txt");
+            build_contigs();
             print_contigs(file);
             //print_eulerian_path();
             //cout<<"\nfinished!\nEdge count: "<<graph.get_total_edges()<<"\nVert count: "<<graph.size()<<"\n";
@@ -1491,66 +1492,187 @@ class GENOME_ASSEMBLER{
         vector<string>&reads;
 
 
+        //TO DO: Convert the contigs to hold the actual strings instead of a whole int for one char...
+
+
         struct CONTIG{
+            CONTIG(vector<int>a):nodes(a){}
             vector<int>nodes;
+            void insert(const CONTIG&other){
+                nodes.insert(nodes.end(),other.nodes.begin(),other.nodes.end());
+            }
+            int& operator[](int i){
+                if(i > nodes.size()){
+                    throw std::out_of_range("contig base index out of range");
+                }
+                return nodes[i];
+            }
         };
+        vector<bool>joined_contigs;
         vector<CONTIG>contigs;
         struct NODE_CONTIG_DATA{
             NODE_CONTIG_DATA(int i,int d):contig_index(i),depth(d){}
             int contig_index;
             int depth;
         };
+        struct CONTIG_EDGE{
+            CONTIG_EDGE() = default;
+            int weight = 0;
+            int total_dist = 0;
+            int dist(){
+                return total_dist / weight;
+            }
+        };
         vector<NODE_CONTIG_DATA>node_to_contig;
-        vector<vector<int>>contig_link_matrix;
+        vector<vector<CONTIG_EDGE>>contig_link_matrix;
 
         void assign_node_to_contig_index(){
+
+            cout<<"node to contig building\n";
+
             node_to_contig.assign(graph.size(),{-1,0});
             for(int i = 0; i<contigs.size(); i++){
-                for(int j = 0; j<contigs[i].nodes.size; j++){
+                for(int j = 0; j<contigs[i].nodes.size(); j++){
                     int v = contigs[i].nodes[j];
                     if(node_to_contig[v].contig_index == -1){
                         node_to_contig[v].contig_index = i;
                         node_to_contig[v].depth = j;
                     }
-                    else if(node_to_contig[v]>=0 && node_to_contig[v] != i){
-                        node_to_contig[v] = -2;
+                    else if(node_to_contig[v].contig_index>=0 && node_to_contig[v].contig_index != i){
+                        node_to_contig[v].contig_index = -2;
                     }
                 }
             }
         }
 
         void build_contig_link_matrix(){
+
+            cout<<"building links\n";
+
             const int MAX_VARIANCE = 50;
             for(auto it:graph.id_to_str.pair_map){
-
+                int contig_a_indx = node_to_contig[it.first].contig_index;
                 if(contig_a_indx>=0){
-                    int contig_a_indx = node_to_contig[it->first].contig_index;
 
-                    int contig_a_size = contigs[contig_a_indx].size();
-                    int a_node_depth = node_to_contig[it->first].depth;
+                    int contig_a_size = contigs[contig_a_indx].nodes.size();
+                    int a_node_depth = node_to_contig[it.first].depth;
 
                     int a_dist_from_end =  contig_a_size - a_node_depth; 
 
-                    for(const auto& data:it->second){
+                    for(const auto& data:it.second){
 
                         int contig_b_indx = node_to_contig[data.target_index].contig_index;
 
                         if(contig_b_indx >= 0){
-                            b_node_depth = node_to_contig[data.target_index].depth;
+                            int b_node_depth = node_to_contig[data.target_index].depth;
                             int estimated_dist = data.dist;
-                            int actual_dist = (a_dist_from_end + b_node_depth) * graph.true_k_len;
+                            int bases_dist = (a_dist_from_end + b_node_depth) * graph.true_k_len;
+                            int gap = estimated_dist - bases_dist;
 
-                            if(abs(actual_dist - estimated_dist) < MAX_VARIANCE){
-                                //TO DO: add an expected distance between the contigs
-                                //to the matrix so ill have a count for the votes and a dist 
-                                contig_link_matrix[contig_a_indx][contig_b_indx]++;
+                            if(bases_dist < estimated_dist + MAX_VARIANCE){
+                                //(finished hopefully) TO DO: add an expected distance between the contigs
+                                //to the matrix so ill have a count for the votes and a dist
+                                contig_link_matrix[contig_a_indx][contig_b_indx].weight++;
+                                contig_link_matrix[contig_a_indx][contig_b_indx].total_dist += gap;
                             }
                         }
                     }
                 }
-
             }
         }
+
+        int find_intermediate_contig(
+            int target,
+            const vector<int>&possible_contigs,
+            int estimated_gap
+        ){
+
+            cout<<"finding middle contig\n";
+
+            if(estimated_gap<graph.true_k_len){return-1;}
+            const int MAX_VARIANCE = 50;
+            const int MIN_WEIGHT = 3;
+            int best_weight = MIN_WEIGHT;
+            int best_indx = -1;
+            vector<int>valid_links;
+            for(int c_i:possible_contigs){
+                if(contig_link_matrix[c_i][target].weight > best_weight){
+                    if(contigs[c_i].nodes.size()*graph.true_k_len < estimated_gap + MAX_VARIANCE){
+                        best_indx = c_i;
+                        best_weight = contig_link_matrix[c_i][target].weight;
+                    }
+                }
+            }
+            if(best_indx != -1){
+                int gap = contig_link_matrix[best_indx][target].dist();
+                if(gap > graph.true_k_len){
+                    for(int j = 0; j<contig_link_matrix[best_indx].size(); j++){
+                        if(
+                            contig_link_matrix[best_indx][j].weight >= MIN_WEIGHT
+                            &&
+                            contig_link_matrix[best_indx][j].dist() < graph.true_k_len
+                        ){
+                            valid_links.push_back(j);
+                        }
+                    }
+                    int intermediate = find_intermediate_contig(target,valid_links,gap);
+                    if(intermediate != -1){
+                        join_contigs(best_indx,intermediate);
+                    }
+                }
+            }
+            return best_indx;
+        }
+
+        int find_best_contig_match(int i){
+
+            cout<<"finding contig match\n";
+
+            int best_indx = -1;
+            const int MIN_WEIGHT = 3;
+            int best_weight = MIN_WEIGHT;
+            int best_dist = 0;
+            vector<int>valid_links;
+            for(int j = 0; j<contig_link_matrix[i].size(); j++){
+                if(
+                    contig_link_matrix[i][j].weight >= MIN_WEIGHT
+                    &&
+                    contig_link_matrix[i][j].dist() < graph.true_k_len
+                ){
+                    valid_links.push_back(j);
+                }
+                if(contig_link_matrix[i][j].weight > best_weight){
+                    best_indx = j;
+                    best_weight = contig_link_matrix[i][j].weight;
+                    best_dist = contig_link_matrix[i][j].dist();
+                }
+            }
+            if(best_indx != -1){
+                if(contig_link_matrix[i][best_indx].dist() > graph.true_k_len){
+                    int middle_contig = find_intermediate_contig(best_indx,valid_links,best_dist);
+                    if(middle_contig != -1){
+                        join_contigs(i,middle_contig);
+                    }
+                }
+            }
+            return best_indx;
+        }
+
+        void join_contigs(int i,int j){
+            joined_contigs[j] = true;
+            contigs[i].insert(contigs[j]);
+        }
+
+        void join_linked_contigs(){
+            assign_node_to_contig_index();
+            build_contig_link_matrix();
+            for(int i = 0; i<contig_link_matrix.size(); i++){
+                if(joined_contigs[i]){continue;}
+                int c = find_best_contig_match(i);
+                join_contigs(i,c);
+            }
+        }
+
 
         void estimate_k_size(){
             size_t gc_count = 0;
@@ -1750,7 +1872,10 @@ class GENOME_ASSEMBLER{
 
 
         
-        void print_contigs(ostream&out){
+        void build_contigs(){
+
+            cout<<"building contigs...\n";
+            
             size_t contigs_total_length = 0;
             int all_junctions = 0;
             int solved_junctions = 0;
@@ -1771,10 +1896,10 @@ class GENOME_ASSEMBLER{
                 /*
                 cout<<"starting edge: "<<v<<"->"<<u;
                 //*/
-                out<<">CONTIG"<<curr_contig<<"\n";
+                //out<<">CONTIG"<<curr_contig<<"\n";
                 curr_contig++;
-                id_to_str.print_str_at(v,out);
-                id_to_str.print_back_char_at(u,out);
+                //id_to_str.print_str_at(v,out);
+                //id_to_str.print_back_char_at(u,out);
                 contigs_total_length+=k_mer_size;
                 int curr = u;
 
@@ -1790,12 +1915,12 @@ class GENOME_ASSEMBLER{
                         }
                         else{break;}
                     }
-                    else if(is_read_pair){
+                    /*else if(is_read_pair){
                         //cout<<"getting edge...\n";
                         edge_indx = choose_path_from_junction(contig_path,id_to_str);
                         if(edge_indx != -1){solved_junctions++;}
                         all_junctions++;
-                    }
+                    }*/
                     if(edge_indx == -1){break;}
 
                     next = graph[curr][edge_indx].to;
@@ -1803,47 +1928,78 @@ class GENOME_ASSEMBLER{
                     /*
                     cout<<"->"<<next;
                     //*/
-                    id_to_str.print_back_char_at(next,out);
+                    //id_to_str.print_back_char_at(next,out);
                     contigs_total_length++;
                     curr = next;
+                    if(contig_path.size() > 200){
+                        contigs.push_back(CONTIG(contig_path));
+                    }
+                    
                 }
-                out<<"\n";
+                //out<<"\n";
             }
             
             //independent cyclic contigs
             for(int v = 0; v<graph.size(); v++){
                 for(int i = 0; i<graph[v].size(); i++){
-                    
+                    vector<int>contig_path;
                     if( graph[v][i].visits_left <=0 ){continue;}
                     
                     graph[v][i].visits_left=0;
+                    contig_path.push_back(v);
                     
                     const int& target = graph[v][i].to;
-                    out<<">CONTIG"<<curr_contig<<"\n";
+                    //out<<">CONTIG"<<curr_contig<<"\n";
                     curr_contig++;
-                    id_to_str.print_str_at(v,out);
-                    id_to_str.print_back_char_at(target,out);
+                    //id_to_str.print_str_at(v,out);
+                    //id_to_str.print_back_char_at(target,out);
 
                     contigs_total_length += k_mer_size;
                     
                     int curr = target;
                     
                     while(curr != v && !graph[curr].empty()){
+                        contig_path.push_back(curr);
                         int edge_indx = find_active_edge(curr);
                         if(edge_indx == -1){break;}
                         const int& next = graph[curr][edge_indx].to;
                         graph[curr][edge_indx].visits_left=0;
-                        id_to_str.print_back_char_at(next,out);
+                        //id_to_str.print_back_char_at(next,out);
 
                         contigs_total_length++;
 
                         curr = next;
                     }
-                    out<<"\n";
+                    if(contig_path.size() > 200){
+                        contigs.push_back(CONTIG(contig_path));
+                    }
+                    //out<<"\n";
                 }
             }
             //cout<<"ALL JUNCTIONS: "<<all_junctions<<" | SOLVED JUNCTIONS: "<<solved_junctions<<"\n";
             //cout<<"THE TOTAL LENGTH OF ALL CONTIGS IS: "<<contigs_total_length<<"\n";
+        }
+
+
+        void print_contigs(ostream&out){
+            const K_MER_BIT_MAP&id_to_str = graph.id_to_str;
+            
+            if(is_read_pair){
+                joined_contigs.assign(contigs.size(),false);
+                cout<<"there are "<<contigs.size()<<" contigs\n";
+                contig_link_matrix.resize(contigs.size(),vector<CONTIG_EDGE>(contigs.size()));
+                join_linked_contigs();
+            }
+            size_t curr_contig = 1;
+            for(int i = 0; i<contigs.size(); i++){
+                if(is_read_pair && joined_contigs[i]){continue;}
+                out<<">CONTIG"<<curr_contig++<<"\n";
+                id_to_str.print_str_at(contigs[i][0],out);
+                for(int j = 1; j<contigs[i].nodes.size(); j++){
+                    id_to_str.print_back_char_at(contigs[i][j],out);
+                }
+                cout<<"\n";
+            }
         }
 
 

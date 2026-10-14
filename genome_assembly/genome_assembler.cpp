@@ -320,7 +320,7 @@ class K_MER_BIT_MAP{
                     }
                 }
             }
-            cout<<"READS CLEANED = "<<reads_cleaned<<endl;
+            //cout<<"READS CLEANED = "<<reads_cleaned<<endl;
             return reads_cleaned;
         }
 
@@ -552,7 +552,7 @@ class K_MER_BIT_MAP{
                 return false;
             }
             //if(k_mer_len%2 == 1){k_mer_len -= 1;}
-            cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
+            //cout<<"CHANGE NEEDED - chosen settings are: K len = "<<k_mer_len<<" min freq = "<<min_freq<<"\n";
             return true;
         }
 
@@ -1493,6 +1493,8 @@ class GENOME_ASSEMBLER{
 
 
         //TO DO: Convert the contigs to hold the actual strings instead of a whole int for one char...
+        //I think the best way is to record the node to contig while 
+        //building the contig and store the contig as a string
 
 
         struct CONTIG{
@@ -1528,8 +1530,10 @@ class GENOME_ASSEMBLER{
 
         void assign_node_to_contig_index(){
 
-            cout<<"node to contig building\n";
+            //cout<<"node to contig building\n";
 
+            int unconnected_count = 0;
+            int connected_count = 0;
             node_to_contig.assign(graph.size(),{-1,0});
             for(int i = 0; i<contigs.size(); i++){
                 for(int j = 0; j<contigs[i].nodes.size(); j++){
@@ -1537,17 +1541,22 @@ class GENOME_ASSEMBLER{
                     if(node_to_contig[v].contig_index == -1){
                         node_to_contig[v].contig_index = i;
                         node_to_contig[v].depth = j;
+                        connected_count++;
                     }
                     else if(node_to_contig[v].contig_index>=0 && node_to_contig[v].contig_index != i){
                         node_to_contig[v].contig_index = -2;
+                        unconnected_count++;
+                        
                     }
                 }
             }
+            //cout<<"There are "<<unconnected_count<<" contig shared nodes and " <<
+            //connected_count-unconnected_count<<"non shared\n";
         }
 
         void build_contig_link_matrix(){
 
-            cout<<"building links\n";
+            //cout<<"building links\n";
 
             const int MAX_VARIANCE = 50;
             for(auto it:graph.id_to_str.pair_map){
@@ -1566,14 +1575,17 @@ class GENOME_ASSEMBLER{
                         if(contig_b_indx >= 0){
                             int b_node_depth = node_to_contig[data.target_index].depth;
                             int estimated_dist = data.dist;
-                            int bases_dist = (a_dist_from_end + b_node_depth) * graph.true_k_len;
+                            int bases_dist = (a_dist_from_end + b_node_depth) + graph.true_k_len;
                             int gap = estimated_dist - bases_dist;
 
                             if(bases_dist < estimated_dist + MAX_VARIANCE){
                                 //(finished hopefully) TO DO: add an expected distance between the contigs
                                 //to the matrix so ill have a count for the votes and a dist
+                                
                                 contig_link_matrix[contig_a_indx][contig_b_indx].weight++;
                                 contig_link_matrix[contig_a_indx][contig_b_indx].total_dist += gap;
+                                //cout<<"link found! weight is "<<
+                                //contig_link_matrix[contig_a_indx][contig_b_indx].weight<<" gap is "<<gap<<"\n";
                             }
                         }
                     }
@@ -1587,11 +1599,11 @@ class GENOME_ASSEMBLER{
             int estimated_gap
         ){
 
-            cout<<"finding middle contig\n";
+            //cout<<"finding middle contig\n";
 
             if(estimated_gap<graph.true_k_len){return-1;}
             const int MAX_VARIANCE = 50;
-            const int MIN_WEIGHT = 3;
+            const int MIN_WEIGHT = 1;
             int best_weight = MIN_WEIGHT;
             int best_indx = -1;
             vector<int>valid_links;
@@ -1626,10 +1638,10 @@ class GENOME_ASSEMBLER{
 
         int find_best_contig_match(int i){
 
-            cout<<"finding contig match\n";
+            //cout<<"finding contig match\n";
 
             int best_indx = -1;
-            const int MIN_WEIGHT = 3;
+            const int MIN_WEIGHT = 1;
             int best_weight = MIN_WEIGHT;
             int best_dist = 0;
             vector<int>valid_links;
@@ -1659,6 +1671,7 @@ class GENOME_ASSEMBLER{
         }
 
         void join_contigs(int i,int j){
+            //cout<<"joined contigs "<< i<<" and "<<j<<"\n";
             joined_contigs[j] = true;
             contigs[i].insert(contigs[j]);
         }
@@ -1669,7 +1682,10 @@ class GENOME_ASSEMBLER{
             for(int i = 0; i<contig_link_matrix.size(); i++){
                 if(joined_contigs[i]){continue;}
                 int c = find_best_contig_match(i);
-                join_contigs(i,c);
+                if(c != -1){
+                    join_contigs(i,c);
+                }
+                
             }
         }
 
@@ -1843,10 +1859,13 @@ class GENOME_ASSEMBLER{
                     if(diff_2 < diff_1){
                         best_edge = second_edge;
                         best_score = second_best;
-                        cout<<"CHOSEN THE SECOND FOR BETTER WEIGHT MATCH!\n";
+                        //cout<<"CHOSEN THE SECOND FOR BETTER WEIGHT MATCH!\n";
                     }
-                    else if(diff_1>diff_2){cout<<"DIDNT CHOOSE THE SECOND!\n";}
-                    else{cout<<"TIE!\n";passes = false;}
+                    //else if(diff_1>diff_2){cout<<"DIDNT CHOOSE THE SECOND!\n";}
+                    else if(diff_1 == diff_2){
+                        //cout<<"TIE!\n"
+                        ;passes = false;
+                    }
                 }
             }
             else{
@@ -1864,7 +1883,7 @@ class GENOME_ASSEMBLER{
             if(!tie && best_score>=3){
                 return best_edge;
             }
-            if(best_score>0){cout<<"Best: "<<best_score<<" second: "<<second_best<<"\n";}
+            //if(best_score>0){cout<<"Best: "<<best_score<<" second: "<<second_best<<"\n";}
             
             return -1;
         }
@@ -1874,7 +1893,7 @@ class GENOME_ASSEMBLER{
         
         void build_contigs(){
 
-            cout<<"building contigs...\n";
+            //cout<<"building contigs...\n";
             
             size_t contigs_total_length = 0;
             int all_junctions = 0;
@@ -1931,11 +1950,10 @@ class GENOME_ASSEMBLER{
                     //id_to_str.print_back_char_at(next,out);
                     contigs_total_length++;
                     curr = next;
-                    if(contig_path.size() > 200){
+                }
+                if(contig_path.size() > 50){
                         contigs.push_back(CONTIG(contig_path));
                     }
-                    
-                }
                 //out<<"\n";
             }
             
@@ -1970,7 +1988,7 @@ class GENOME_ASSEMBLER{
 
                         curr = next;
                     }
-                    if(contig_path.size() > 200){
+                    if(contig_path.size() > 1){
                         contigs.push_back(CONTIG(contig_path));
                     }
                     //out<<"\n";
@@ -1986,7 +2004,7 @@ class GENOME_ASSEMBLER{
             
             if(is_read_pair){
                 joined_contigs.assign(contigs.size(),false);
-                cout<<"there are "<<contigs.size()<<" contigs\n";
+                //cout<<"there are "<<contigs.size()<<" contigs\n";
                 contig_link_matrix.resize(contigs.size(),vector<CONTIG_EDGE>(contigs.size()));
                 join_linked_contigs();
             }
@@ -1998,7 +2016,7 @@ class GENOME_ASSEMBLER{
                 for(int j = 1; j<contigs[i].nodes.size(); j++){
                     id_to_str.print_back_char_at(contigs[i][j],out);
                 }
-                cout<<"\n";
+                out<<"\n";
             }
         }
 

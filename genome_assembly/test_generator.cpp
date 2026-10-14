@@ -7,12 +7,23 @@
 
 using namespace std;
 
-const bool genarate_from_real_gene = false;
+const bool genarate_from_real_gene = true;
 
-const int gene_len = 500000;
+enum class GENE_TYPES{N_DELTO,E_COLI};
+
+const GENE_TYPES GENE_TYPE = GENE_TYPES::N_DELTO;
+
+const int gene_len = 4600000;
 const int GC_percentage = 50;
+
+const int read_len_fluctuation = 50;
 const int read_len = 100;
+
+const int max_read_len = read_len + read_len_fluctuation;
+const int min_read_len = read_len - read_len_fluctuation;
+
 const int coverage = 30;
+
 const string GC_bases = "CG";
 const string AT_bases = "AT";
 const string bases = "ACGT";
@@ -47,9 +58,18 @@ void gen_rand_genome(string& gene){
     }
 }
 
+string get_gene_file(){
+    switch(GENE_TYPE){
+        case GENE_TYPES::N_DELTO: return("genome_assembly/N_deltocephalinicola_gene.txt");
+        case GENE_TYPES::E_COLI: return("genome_assembly/ecoli_gene.txt");
+        default: return("genome_assembly/ecoli_gene.txt");
+    }
+}
+
 
 void read_real_gene(string&gene){
-    ifstream file("genome_assembly/real_gene.txt");
+    string path = get_gene_file();
+    ifstream file(path);
     string read;
     string name;
     file>>name;
@@ -73,7 +93,12 @@ void diff_rand_base(char&base,mt19937& rng){
 
 void break_gene_into_reads(const string& gene,vector<string>&reads){
     mt19937 rng(100);
-    int max_start = gene.size()-read_len;
+
+    uniform_int_distribution<int>read_fluctuation(
+        min_read_len,
+        max_read_len
+    );
+
     
     int read_count = gene.size() * coverage / read_len;
     if(is_read_pair){
@@ -84,19 +109,24 @@ void break_gene_into_reads(const string& gene,vector<string>&reads){
 
         int actual_d;
         int mean_d;
+        
+        int actual_read_len = read_fluctuation(rng);
+
+        int max_start = gene.size()-actual_read_len;
         int actual_max_start = max_start;
+
         if(is_read_pair){
             uniform_int_distribution<int>mean_d_dist(pair_dist_min,pair_dist_max);
             mean_d = mean_d_dist(rng);
             uniform_int_distribution<int>d_dist(mean_d - dist_variance, mean_d + dist_variance);
             actual_d = d_dist(rng);
-            actual_max_start = max_start - (actual_d + read_len);
+            actual_max_start = max_start - (actual_d + actual_read_len);
         }
 
         uniform_int_distribution<int>dist(0,actual_max_start);
 
         int start = dist(rng);
-        string read = gene.substr(start,read_len);
+        string read = gene.substr(start,actual_read_len);
         uniform_int_distribution<int>read_dist(0,read.size()-1);
         if(has_errors){
             //introduce a 1% error
@@ -106,15 +136,15 @@ void break_gene_into_reads(const string& gene,vector<string>&reads){
         
 
         if(is_read_pair){
-            int r2_start = start+read_len+actual_d;
-            string read_2 = gene.substr(r2_start, read_len);
+            int r2_start = start + actual_read_len + actual_d;
+            string read_2 = gene.substr(r2_start, actual_read_len);
             if(has_errors){
                 //introduce a 1% error
                 int error_i = read_dist(rng);
                 diff_rand_base(read_2.at(error_i),rng);
             }
 
-            read += '|' + read_2 + '|' + to_string(mean_d+read_len);
+            read += '|' + read_2 + '|' + to_string(mean_d + actual_read_len);
         }
         reads.push_back(read);
 
@@ -155,10 +185,11 @@ void write_test_to_file(){
     ofstream file("genome_assembly/test_inputs.txt");
     if(!file){cout<<"could not open file\n";}
 
-    cout<<"Writing to file: genome_assembly/test_inputs.txt\ngenome size: "<<gene.size()
-    <<"\nread size: "<<read_len<<"\nread count: "<<reads.size()<<"\nerror percentage: 1%"
-    <<"\ncoverage: "<<coverage <<"\npaired inputs: "<<my_bool(is_read_pair)<<"\nGC% "<< actual_gc(gene)
-    <<"\nhas errors: "<<my_bool(has_errors);
+    cout<<"Writing to file: genome_assembly/test_inputs.txt\nGenome size: "<<gene.size()
+    <<"\nAverage read size: "<<read_len<<"\nRead size fluctuation: "<<min_read_len<<" - "<<max_read_len
+    <<"\nRead count: "<<reads.size()<<"\nError percentage: 1%"
+    <<"\nCoverage: "<<coverage <<"\nPaired inputs: "<<my_bool(is_read_pair)<<"\nGC% "<< actual_gc(gene)
+    <<"\nHas errors: "<<my_bool(has_errors);
     
     file<<reads.size()<<"\n";
     
